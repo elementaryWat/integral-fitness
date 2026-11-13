@@ -4,6 +4,7 @@ import { Screen } from '../components/Screen';
 import { TAG_COLORS } from '../data';
 import { DISCIPLINES, groupOf, LOAD_MODE_LABEL, MUSCLE_GROUPS, PATTERN_LABEL, type MuscleGroup } from '../domain/catalog';
 import { muscleName, type MuscleKey } from '../domain/muscles';
+import { matchesExercise } from '../domain/search';
 import type { Discipline, Exercise } from '../domain/types';
 import { useNav } from '../navigation';
 import { useStore } from '../store';
@@ -12,15 +13,6 @@ import { ChipSelect, GhostButton, PrimaryButton, Row, SheetHeader, T } from '../
 
 type DisciplineFilter = Discipline | 'Todas';
 type GroupFilter = MuscleGroup | 'todos';
-
-/** Lower-case, accent-free text for forgiving search ("jalon" finds "Jalón"). */
-const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-
-function matches(e: Exercise, q: string) {
-  if (!q) return true;
-  const hay = norm([e.name, e.discipline, PATTERN_LABEL[e.pattern], ...e.primary.map(muscleName), ...e.secondary.map(muscleName)].join(' '));
-  return norm(q).split(/\s+/).every((w) => hay.includes(w));
-}
 
 function ExerciseRow({ e, first, onPress }: { e: Exercise; first: boolean; onPress: () => void }) {
   const color = TAG_COLORS[e.discipline];
@@ -52,7 +44,7 @@ export function ExerciseLibraryScreen() {
   const [showArchived, setShowArchived] = useState(false);
 
   const visible = useMemo(
-    () => exercises.filter((e) => !!e.archived === showArchived && (discipline === 'Todas' || e.discipline === discipline) && matches(e, query)),
+    () => exercises.filter((e) => !!e.archived === showArchived && (discipline === 'Todas' || e.discipline === discipline) && matchesExercise(e, query)),
     [exercises, showArchived, discipline, query],
   );
   const counts = useMemo(() => {

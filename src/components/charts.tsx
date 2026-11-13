@@ -40,7 +40,15 @@ export function Ring({ progress, color, size = 150 }: { progress: number; color:
 }
 
 /** Front/back anatomical map; muscles colored by training status, selected one outlined. */
-export function BodyMap({ view, selected, onSelect, status, width = 170 }: { view: 'front' | 'back'; selected: MuscleKey; onSelect: (k: MuscleKey) => void; status: (k: MuscleKey) => MuscleStatus; width?: number }) {
+export function BodyMap({ view, selected, onSelect, status, fill, width = 170 }: {
+  view: 'front' | 'back';
+  selected?: MuscleKey;
+  onSelect: (k: MuscleKey) => void;
+  status?: (k: MuscleKey) => MuscleStatus;
+  /** Custom colour per muscle (overrides `status`) */
+  fill?: (k: MuscleKey) => string;
+  width?: number;
+}) {
   const list = view === 'front' ? MUSCLES_FRONT : MUSCLES_BACK;
   // Draw the selected muscle last so its outline sits on top.
   const ordered = [...list.filter(([k]) => k !== selected), ...list.filter(([k]) => k === selected)];
@@ -53,7 +61,7 @@ export function BodyMap({ view, selected, onSelect, status, width = 170 }: { vie
             <Polygon
               key={`${view}-${k ?? 'x'}-${i}-${j}`}
               points={points}
-              fill={k ? STATUS_COLOR[status(k)] : C.border}
+              fill={k ? (fill ? fill(k) : status ? STATUS_COLOR[status(k)] : C.border) : C.border}
               stroke={sel ? '#ffffff' : '#000000'}
               strokeWidth={sel ? 1.2 : 0.5}
               strokeLinejoin="round"

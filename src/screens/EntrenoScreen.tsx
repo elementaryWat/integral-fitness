@@ -1,21 +1,26 @@
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, View } from 'react-native';
+import { ActionSheetIOS, ActivityIndicator, Alert, Platform, Pressable, ScrollView, View } from 'react-native';
+import { BodyMap } from '../components/charts';
 import { Screen } from '../components/Screen';
 import { RpeChips, StepperRow } from '../components/Watch';
 import { BLOCK_REST_LABEL, TAG_COLORS, fmt, loadText, loadUnit, mmss, prescription, unitLabel, unitSuffix } from '../data';
-import { MUSCLE_GROUPS, type MuscleGroup } from '../domain/catalog';
+import { groupOf, MUSCLE_GROUPS, type MuscleGroup } from '../domain/catalog';
+import { AiRequestError, aiReady, buildRoutine } from '../ai/api';
 import { shortDay } from '../domain/dates';
+import { MUSCLE_INFO, type MuscleKey } from '../domain/muscles';
 import type { PlannedBlock, Session } from '../domain/types';
 import { queueBalance } from '../engines/balance';
 import { sessionMetrics } from '../engines/efficiency';
-import { alternativesFor, groupStatus, recommendedGroups, relatedGroups, type GroupReadiness } from '../engines/focus';
+import { SHORT, groupStatus, recommendedGroups, relatedGroups, type GroupReadiness } from '../engines/focus';
 import { buildQueue, estimateMinutes, SESSION_MINUTES } from '../engines/generator';
+import { blocksFromAi, musclesWorked, type MuscleWork, MAX_BLOCKS, MAX_PER_BLOCK, MAX_ROUNDS, mergeWithNext, moveBlock, removeExercise, setRounds, splitOut } from '../engines/planEdit';
 import { progressNote } from '../engines/progression';
 import { useNav, useUi } from '../navigation';
 import { useLive } from '../session';
 import { useStore } from '../store';
 import { useDerived } from '../store/derived';
 import { C, body, cond, em, mono } from '../theme';
+import { usePlanEditor } from './planEditor';
 import { Card, GhostButton, LinkButton, PrimaryButton, Row, ScreenHeader, Segmented, StatTile, T } from '../ui';
 
 function LiveCard() {
@@ -92,7 +97,13 @@ function FocusPicker() {
   const focus = useStore((s) => s.settings.focus);
   const update = useStore((s) => s.updateSettings);
   const { states } = useDerived();
-  const setFocus = (f: MuscleGroup[]) => update({ focus: f, swaps: {} });
+  const draft = useStore((s) => s.planDraft);
+  const setPlanDraft = useStore((s) => s.setPlanDraft);
+  const setFocus = (f: MuscleGroup[]) => {
+    const go = () => { setPlanDraft(undefined); update({ focus: f, swaps: {} }); };
+    if (draft) Alert.alert('Cambiar grupos', 'Se descartan los cambios que hiciste a la sesión de hoy.', [{ text: 'Cancelar', style: 'cancel' }, { text: 'Cambiar', onPress: go }]);
+    else go();
+  };
   const toggle = (g: MuscleGroup) => setFocus(focus.includes(g) ? focus.filter((x) => x !== g) : [...focus, g]);
   const recommended = recommendedGroups(states);
   const presets: { label: string; groups: MuscleGroup[] }[] = [
@@ -169,7 +180,7 @@ function RelatedCard() {
     <Card gap={0}>
       <T style={[mono(10), { letterSpacing: em(10, 0.12), color: C.muted, paddingBottom: 4 }]}>COMBINA BIEN CON</T>
       {related.map((r, i) => (
-        <Pressable key={r.group} onPress={() => update({ focus: [...focus, r.group], swaps: {} })} accessibilityRole="button" style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderTopColor: C.line, opacity: pressed ? 0.7 : 1 })}>
+        <Pressable key={r.group} onPress={() => { useStore.getState().setPlanDraft(undefined); update({ focus: [...focus, r.group], swaps: {} }); }} accessibilityRole="button" style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderTopColor: C.line, opacity: pressed ? 0.7 : 1 })}>
           <View style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: C.lime, alignItems: 'center', justifyContent: 'center' }}>
             <T style={[body(16, 600), { color: C.lime }]}>+</T>
           </View>
@@ -184,21 +195,52 @@ function RelatedCard() {
   );
 }
 
-function BlockCard({ block, session, plan }: { block: PlannedBlock; session?: Session; plan?: PlannedBlock[] }) {
+/** iOS action sheet (Alert on other platforms) with a destructive last option when given. */
+function actions(title: string, options: { label: string; onPress: () => void; destructive?: boolean }[]) {
+  if (Platform.OS === 'ios') {
+    const labels = [...options.map((o) => o.label), 'Cancelar'];
+    const destructiveButtonIndex = options.findIndex((o) => o.destructive);
+    ActionSheetIOS.showActionSheetWithOptions(
+      { title, options: labels, cancelButtonIndex: labels.length - 1, destructiveButtonIndex: destructiveButtonIndex >= 0 ? destructiveButtonIndex : undefined, userInterfaceStyle: 'dark' },
+      (i) => options[i]?.onPress(),
+    );
+  } else {
+    Alert.alert(title, undefined, [...options.map((o) => ({ text: o.label, onPress: o.onPress, style: o.destructive ? ('destructive' as const) : ('default' as const) })), { text: 'Cancelar', style: 'cancel' }]);
+  }
+}
+
+function IconButton({ label, onPress, disabled, a11y }: { label: string; onPress: () => void; disabled?: boolean; a11y: string }) {
+  return (
+    <Pressable onPress={onPress} disabled={disabled} hitSlop={6} accessibilityRole="button" accessibilityLabel={a11y} style={({ pressed }) => ({ minWidth: 34, height: 32, paddingHorizontal: 8, borderRadius: 8, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.3 : pressed ? 0.6 : 1 })}>
+      <T style={[mono(13), { color: C.soft }]}>{label}</T>
+    </Pressable>
+  );
+}
+
+function BlockCard({ block, bi, session, editable }: { block: PlannedBlock; bi: number; session?: Session; editable?: boolean }) {
+  const nav = useNav();
   const { ex, all, weight, today } = useDerived();
   const live = useLive().live;
-  const exercises = useStore((s) => s.exercises);
-  const swaps = useStore((s) => s.settings.swaps);
-  const update = useStore((s) => s.updateSettings);
-  const [open, setOpen] = useState<string | null>(null);
-  const inPlan = new Set((plan ?? []).flatMap((b) => b.items.map((i) => i.exerciseId)));
-  const swapTo = (current: string, to: string) => {
-    const original = Object.keys(swaps).find((k) => swaps[k] === current) ?? current;
-    const next = { ...swaps };
-    if (to === original) delete next[original]; else next[original] = to;
-    update({ swaps: next });
-    setOpen(null);
-  };
+  const { blocks, apply } = usePlanEditor();
+  const total = blocks.length;
+  const rounds = Math.max(1, ...block.items.map((i) => i.sets));
+  const cardio = block.kind === 'cardio';
+  const canMerge = bi < total - 1 && block.items.length + blocks[bi + 1].items.length <= MAX_PER_BLOCK && !cardio && blocks[bi + 1].kind !== 'cardio';
+
+  const blockMenu = () =>
+    actions(`Bloque ${block.key} · ${block.title}`, [
+      ...(canMerge ? [{ label: `Unir con el bloque ${blocks[bi + 1].key} (superserie)`, onPress: () => apply((b) => mergeWithNext(b, bi, ex)) }] : []),
+      ...(!cardio && block.items.length < MAX_PER_BLOCK ? [{ label: 'Añadir ejercicio a la superserie', onPress: () => nav.navigate('ExercisePicker', { mode: 'add', block: bi }) }] : []),
+      { label: 'Quitar bloque', destructive: true, onPress: () => apply((b) => b.filter((_, i) => i !== bi)) },
+    ]);
+
+  const exerciseMenu = (ii: number, name: string) =>
+    actions(name, [
+      { label: 'Cambiar por otro ejercicio', onPress: () => nav.navigate('ExercisePicker', { mode: 'replace', block: bi, index: ii }) },
+      ...(block.items.length > 1 && total < MAX_BLOCKS ? [{ label: 'Separar en su propio bloque', onPress: () => apply((b) => splitOut(b, bi, ii, ex)) }] : []),
+      { label: 'Quitar de la sesión', destructive: true, onPress: () => apply((b) => removeExercise(b, bi, ii, ex)) },
+    ]);
+
   return (
     <Card>
       <Row style={{ gap: 8 }}>
@@ -208,52 +250,41 @@ function BlockCard({ block, session, plan }: { block: PlannedBlock; session?: Se
           </View>
           <T style={[cond(19), { textTransform: 'uppercase', flexShrink: 1 }]} lines={1}>{block.title}</T>
         </View>
-        <T style={[mono(10, 500), { color: C.muted }]}>{BLOCK_REST_LABEL(block)}</T>
+        {editable ? <IconButton label="⋯" onPress={blockMenu} a11y={`Opciones del bloque ${block.key}`} /> : <T style={[mono(10, 500), { color: C.muted }]}>{BLOCK_REST_LABEL(block)}</T>}
       </Row>
-      {block.items.map((it) => {
+      {editable && (
+        <Row style={{ gap: 8 }}>
+          {!cardio ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <IconButton label="−" onPress={() => apply((b) => setRounds(b, bi, rounds - 1, ex))} disabled={rounds <= 1} a11y="Quitar una ronda" />
+              <T style={[mono(11), { color: C.text }]}>{rounds} {rounds === 1 ? 'RONDA' : 'RONDAS'}</T>
+              <IconButton label="+" onPress={() => apply((b) => setRounds(b, bi, rounds + 1, ex))} disabled={rounds >= MAX_ROUNDS} a11y="Añadir una ronda" />
+            </View>
+          ) : <T style={[mono(10, 500), { color: C.muted }]}>{BLOCK_REST_LABEL(block)}</T>}
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <IconButton label="↑" onPress={() => apply((b) => moveBlock(b, bi, -1, ex))} disabled={bi === 0} a11y="Subir bloque" />
+            <IconButton label="↓" onPress={() => apply((b) => moveBlock(b, bi, 1, ex))} disabled={bi === total - 1} a11y="Bajar bloque" />
+          </View>
+        </Row>
+      )}
+      {block.items.map((it, ii) => {
         const e = ex[it.exerciseId];
         if (!e) return null;
         return (
-          <View key={it.exerciseId} style={{ gap: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: C.line }}>
+          <View key={`${it.exerciseId}-${ii}`} style={{ gap: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: C.line }}>
             <Row style={{ alignItems: 'flex-start', gap: 8 }}>
-              <View style={{ flex: 1, gap: 4 }}>
+              <Pressable style={{ flex: 1, gap: 4 }} disabled={!editable} onPress={() => nav.navigate('ExercisePicker', { mode: 'replace', block: bi, index: ii })} accessibilityHint={editable ? 'Cambiar ejercicio' : undefined}>
                 <T style={body(16, 600)}>{e.name}</T>
                 <T style={[mono(12, 500), { color: C.soft }]}>{prescription(e, it.sets, it.load, it.reps)}</T>
-              </View>
-              {plan && block.kind !== 'cardio' ? (
-                <Pressable onPress={() => setOpen(open === e.id ? null : e.id)} hitSlop={8} accessibilityRole="button" style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: open === e.id ? C.lime : C.border }}>
-                  <T style={[mono(10), { color: open === e.id ? C.lime : C.soft }]}>{open === e.id ? 'CERRAR' : 'CAMBIAR'}</T>
-                </Pressable>
+              </Pressable>
+              {editable ? (
+                <IconButton label="⋯" onPress={() => exerciseMenu(ii, e.name)} a11y={`Opciones de ${e.name}`} />
               ) : (
                 <View style={{ paddingVertical: 5, paddingHorizontal: 7, borderRadius: 6, borderWidth: 1, borderColor: TAG_COLORS[e.discipline] }}>
                   <T style={[mono(10), { color: TAG_COLORS[e.discipline] }]}>{e.discipline.toUpperCase()}</T>
                 </View>
               )}
             </Row>
-            {plan && open === e.id && (() => {
-              const original = Object.keys(swaps).find((k) => swaps[k] === e.id);
-              const alts = alternativesFor(e, exercises, inPlan);
-              return (
-                <View style={{ gap: 6 }}>
-                  <T style={[mono(10), { color: C.muted, letterSpacing: em(10, 0.08) }]}>RELACIONADOS · MISMO MÚSCULO PRIMERO</T>
-                  {original && ex[original] ? (
-                    <Pressable onPress={() => swapTo(e.id, original)} style={{ padding: 10, borderRadius: 10, borderWidth: 1, borderColor: C.border }}>
-                      <T style={[body(14, 600), { color: C.soft }]}>↺ Volver a {ex[original].name}</T>
-                    </Pressable>
-                  ) : null}
-                  {alts.map((a) => (
-                    <Pressable key={a.id} onPress={() => swapTo(e.id, a.id)} accessibilityRole="button" style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 10, backgroundColor: pressed ? C.border : C.chip })}>
-                      <View style={{ flex: 1, gap: 2 }}>
-                        <T style={body(14, 600)}>{a.name}</T>
-                        <T style={[mono(10, 500), { color: C.muted }]}>{a.discipline.toUpperCase()}{a.levers ? ` · ${a.levers.length} NIVELES` : ''}{a.advanced ? ' · AVANZADO' : ''}</T>
-                      </View>
-                      <T style={[mono(10), { color: C.lime }]}>USAR</T>
-                    </Pressable>
-                  ))}
-                  {!alts.length && <T style={[body(12), { color: C.muted }]}>No hay otros ejercicios de este músculo en tu biblioteca.</T>}
-                </View>
-              );
-            })()}
             {session && (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                 {Array.from({ length: it.sets }, (_, i) => {
@@ -279,7 +310,171 @@ function BlockCard({ block, session, plan }: { block: PlannedBlock; session?: Se
           </View>
         );
       })}
+      {editable && !cardio && block.items.length < MAX_PER_BLOCK && (
+        <Pressable onPress={() => nav.navigate('ExercisePicker', { mode: 'add', block: bi })} style={{ paddingTop: 10, borderTopWidth: 1, borderTopColor: C.line }} accessibilityRole="button">
+          <T style={[mono(11), { color: C.lime, letterSpacing: em(11, 0.06) }]}>+ AÑADIR A LA SUPERSERIE</T>
+        </Pressable>
+      )}
     </Card>
+  );
+}
+
+/** Asks the server's AI for a routine for the chosen muscle groups, using only the user's library. */
+function AiBuildButton() {
+  const { states, deload, today } = useDerived();
+  const { ctx } = usePlanEditor();
+  const link = useStore((s) => s.settings.watch);
+  const focus = useStore((s) => s.settings.focus);
+  const minutes = useStore((s) => s.settings.plannedMinutes);
+  const profile = useStore((s) => s.profile);
+  const exercises = useStore((s) => s.exercises);
+  const setPlanDraft = useStore((s) => s.setPlanDraft);
+  const [busy, setBusy] = useState(false);
+
+  const groups: MuscleGroup[] = focus.length ? focus : MUSCLE_GROUPS.map((g) => g.key).filter((g) => g !== 'cardio');
+  const build = async () => {
+    if (busy) return;
+    if (!aiReady(link)) {
+      Alert.alert('IA no disponible', 'Configura el servidor en Hoy → Bip 6 → Reloj.');
+      return;
+    }
+    const muscles = groups.flatMap((g) => [...(MUSCLE_GROUPS.find((x) => x.key === g)?.muscles ?? [])]);
+    const catalog = exercises
+      .filter((e) => !e.archived && groups.includes(groupOf(e)))
+      .map((e) => ({ id: e.id, name: e.name, primary: e.primary, secondary: e.secondary, pattern: e.pattern, plane: e.plane, discipline: e.discipline, advanced: e.advanced }));
+    setBusy(true);
+    try {
+      const res = await buildRoutine(link, {
+        groups,
+        minutes,
+        experience: profile?.experience,
+        goal: profile?.goal,
+        deload,
+        muscles: Object.fromEntries(muscles.map((m) => [m, { sets: Math.round(states[m].sets), target: states[m].target, rec: Math.round(states[m].rec), status: states[m].status }])),
+        catalog,
+      });
+      const blocks = blocksFromAi(res, ctx, minutes);
+      if (!blocks.length) throw new AiRequestError('La IA no devolvió ejercicios válidos. Vuelve a intentarlo.', 'empty');
+      setPlanDraft({ date: today, blocks, name: `IA · ${res.name}`, note: res.rationale });
+    } catch (e) {
+      Alert.alert('No se pudo armar la rutina', e instanceof Error ? e.message : 'Error inesperado.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  
+  return (
+    <Pressable onPress={build} disabled={busy} accessibilityRole="button" style={({ pressed }) => ({ height: 48, borderRadius: 24, backgroundColor: C.lime, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, opacity: busy ? 0.7 : pressed ? 0.85 : 1 })}>
+      {busy ? <ActivityIndicator color={C.bg} /> : null}
+      <T style={[cond(18), { color: C.bg, textTransform: 'uppercase' }]}>
+        {busy ? 'Armando rutina…' : `✦ Armar con IA · ${focus.length ? groups.map((g) => MUSCLE_GROUPS.find((x) => x.key === g)?.label).join(', ') : 'cuerpo completo'}`}
+      </T>
+    </Pressable>
+  );
+}
+
+const WORK_PRIMARY = C.lime;
+const WORK_SECONDARY = '#5f7a1c';
+const WORK_NONE = '#232523';
+
+/** Collapsible body sketch of the muscles today's session works (primary vs secondary). */
+function SessionMusclesCard({ blocks }: { blocks: PlannedBlock[] }) {
+  const { ex } = useDerived();
+  const [open, setOpen] = useState(false);
+  const [sel, setSel] = useState<MuscleKey | undefined>();
+  const work = musclesWorked(blocks, ex);
+  const ranked = (Object.entries(work) as [MuscleKey, MuscleWork][]).sort((a, b) => Number(b[1].primary) - Number(a[1].primary) || b[1].sets - a[1].sets);
+  const main = ranked.filter(([, w]) => w.primary);
+  if (!ranked.length) return null;
+  const color = (k: MuscleKey) => (work[k]?.primary ? WORK_PRIMARY : work[k] ? WORK_SECONDARY : WORK_NONE);
+  const fmtSets = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1).replace('.', ','));
+  const picked = sel ? work[sel] : undefined;
+  const summary = main.slice(0, 3).map(([m]) => SHORT[m]).join(', ') + (main.length > 3 ? ` +${main.length - 3}` : '');
+
+  return (
+    <Card gap={open ? 12 : 0} padding={14}>
+      <Pressable onPress={() => setOpen((v) => !v)} accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel="Músculos de esta sesión">
+        <Row style={{ gap: 10 }}>
+          <View style={{ flex: 1, gap: 3 }}>
+            <T style={[mono(10), { letterSpacing: em(10, 0.12), color: C.muted }]}>MÚSCULOS DE ESTA SESIÓN</T>
+            <T style={[cond(18), { textTransform: 'uppercase' }]} lines={1}>{summary}</T>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 14, borderWidth: 1, borderColor: open ? C.lime : C.border }}>
+            <T style={[mono(10), { color: open ? C.lime : C.soft }]}>{open ? 'OCULTAR' : 'VER CROQUIS'}</T>
+            <T style={[mono(10), { color: open ? C.lime : C.soft }]}>{open ? '▴' : '▾'}</T>
+          </View>
+        </Row>
+      </Pressable>
+      {open && (
+        <>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+            {(['front', 'back'] as const).map((v) => (
+              <View key={v} style={{ alignItems: 'center', gap: 4 }}>
+                <BodyMap view={v} selected={sel} onSelect={(k) => setSel(sel === k ? undefined : k)} fill={color} width={118} />
+                <T style={[mono(9), { color: C.dim }]}>{v === 'front' ? 'FRENTE' : 'ESPALDA'}</T>
+              </View>
+            ))}
+          </View>
+          <View style={{ flexDirection: 'row', gap: 14, justifyContent: 'center' }}>
+            {([[WORK_PRIMARY, 'Principal'], [WORK_SECONDARY, 'Secundario'], [WORK_NONE, 'No trabaja']] as const).map(([c, l]) => (
+              <View key={l} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ width: 10, height: 10, borderRadius: 3, backgroundColor: c, borderWidth: 1, borderColor: C.border }} />
+                <T style={[body(12), { color: C.soft }]}>{l}</T>
+              </View>
+            ))}
+          </View>
+          {sel ? (
+            <View style={{ backgroundColor: C.chip, borderRadius: 12, padding: 12, gap: 4 }}>
+              <Row>
+                <T style={[cond(18), { textTransform: 'uppercase' }]}>{MUSCLE_INFO[sel].name}</T>
+                <T style={[mono(11), { color: picked?.primary ? C.lime : picked ? C.soft : C.dim }]}>{picked ? `${fmtSets(picked.sets)} SERIES` : 'NO SE TRABAJA'}</T>
+              </Row>
+              <T style={[body(12, 400, 1.4), { color: C.muted }]}>{picked ? picked.exercises.join(' · ') : 'Ningún ejercicio de esta sesión lo trabaja.'}</T>
+            </View>
+          ) : (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {ranked.map(([m, w]) => (
+                <Pressable key={m} onPress={() => setSel(m)} style={{ flexDirection: 'row', gap: 6, alignItems: 'center', paddingVertical: 5, paddingHorizontal: 9, borderRadius: 8, borderWidth: 1, borderColor: w.primary ? C.lime : C.border }}>
+                  <T style={[mono(10), { color: w.primary ? C.lime : C.soft }]}>{SHORT[m].toUpperCase()}</T>
+                  <T style={[mono(10), { color: C.dim }]}>{fmtSets(w.sets)}</T>
+                </Pressable>
+              ))}
+            </View>
+          )}
+          <T style={[mono(9, 500, 1.4), { color: C.dim }]}>SERIES DE LA SESIÓN: PRINCIPAL CUENTA 1, SECUNDARIO 0,5. TOCA UN MÚSCULO PARA VER SUS EJERCICIOS.</T>
+        </>
+      )}
+    </Card>
+  );
+}
+
+/** Plan name, routines and reset controls above the editable blocks. */
+function PlanBar() {
+  const nav = useNav();
+  const { planName, edited, reset, blocks } = usePlanEditor();
+  const note = useStore((s) => s.planDraft?.note);
+  const routines = useStore((s) => s.routines.length);
+  return (
+    <View style={{ gap: 8, paddingTop: 6 }}>
+      <AiBuildButton />
+      <Row style={{ alignItems: 'baseline', paddingHorizontal: 2 }}>
+        <T style={[mono(10), { letterSpacing: em(10, 0.12), color: edited ? C.lime : C.muted, flexShrink: 1 }]} lines={1}>
+          {edited ? (planName ?? 'SESIÓN EDITADA').toUpperCase() : 'SESIÓN GENERADA · EDÍTALA ABAJO'}
+        </T>
+        {edited ? (
+          <LinkButton label="RESTABLECER" color={C.muted} onPress={() => Alert.alert('Restablecer sesión', 'Se descartan los cambios de hoy y vuelve la sesión generada.', [{ text: 'Cancelar', style: 'cancel' }, { text: 'Restablecer', style: 'destructive', onPress: reset }])} />
+        ) : null}
+      </Row>
+      {edited && note ? <T style={[body(13, 400, 1.4), { color: C.soft, paddingHorizontal: 2 }]}>{note}</T> : null}
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flex: 1 }}>
+          <GhostButton label={routines ? `MIS RUTINAS · ${routines}` : 'MIS RUTINAS'} onPress={() => nav.navigate('Routines')} height={40} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <GhostButton label="GUARDAR COMO RUTINA" onPress={() => nav.navigate('Routines')} height={40} color={blocks.length ? C.lime : C.dim} />
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -381,10 +576,14 @@ export function EntrenoScreen() {
         <PrimaryButton label={`Empezar sesión · ${queue.length} series`} onPress={() => start(plan, settings.plannedMinutes, deload)} disabled={!plan.length} />
       )}
 
-      {!active && blocks.length > 0 && (
-        <T style={[mono(10), { letterSpacing: em(10, 0.12), color: C.muted, paddingTop: 6, paddingHorizontal: 2 }]}>EJERCICIOS RECOMENDADOS · TOCA “CAMBIAR” PARA VER RELACIONADOS</T>
+      {!active && <PlanBar />}
+      {blocks.length > 0 && <SessionMusclesCard blocks={blocks} />}
+      {blocks.map((b, i) => <BlockCard key={b.key} bi={i} block={b} session={active} editable={!active} />)}
+      {!active && blocks.length < MAX_BLOCKS && (
+        <Pressable onPress={() => nav.navigate('ExercisePicker', { mode: 'addBlock' })} accessibilityRole="button" style={({ pressed }) => ({ height: 52, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: C.border, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
+          <T style={[mono(11), { color: C.soft, letterSpacing: em(11, 0.08) }]}>+ AÑADIR BLOQUE</T>
+        </Pressable>
       )}
-      {blocks.map((b) => <BlockCard key={b.key} block={b} session={active} plan={active ? undefined : plan} />)}
 
       {active ? (
         <GhostButton label={live.mode === 'done' ? 'GUARDAR SESIÓN' : 'TERMINAR SESIÓN'} onPress={confirmEnd} color={live.mode === 'done' ? C.lime : C.soft} />

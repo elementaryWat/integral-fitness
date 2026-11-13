@@ -9,6 +9,7 @@ import type {
 } from '../domain/types';
 import type { Recalibration } from '../engines/energy';
 import { buildQueue, type Minutes } from '../engines/generator';
+import type { Routine } from '../engines/planEdit';
 import { sanitizeSettings, withSeedExercises } from './seedMerge';
 import { newPairCode, type WatchLink } from '../watch/relay';
 
@@ -18,6 +19,16 @@ const storage: StateStorage = {
   setItem: (k, v) => mmkv.set(k, v),
   removeItem: (k) => { mmkv.remove(k); },
 };
+
+/** Session edited by hand for a given day; `routineId` when it was loaded from a saved routine. */
+export interface PlanDraft {
+  date: ISODate;
+  blocks: PlannedBlock[];
+  name?: string;
+  routineId?: string;
+  /** Why the AI built it this way (shown above the blocks) */
+  note?: string;
+}
 
 export interface Settings {
   /** Max rest between supersets (s) */
@@ -46,6 +57,9 @@ export interface AppState {
   photos: ProgressPhoto[];
   foods: FoodEntry[];
   pantry: PantryItem[];
+  /** Today's hand-edited session (replaces the generated plan for that date) */
+  planDraft?: PlanDraft;
+  routines: Routine[];
   activity: DailyActivity[];
   dayTypeOverride: Record<ISODate, DayType>;
   coach: CoachState;
@@ -76,6 +90,9 @@ export interface AppState {
   addPantry: (items: Omit<PantryItem, 'id' | 'addedAt'>[]) => void;
   removePantry: (id: string) => void;
   setAiReview: (weekOf: ISODate, review: AiCoachReview) => void;
+  setPlanDraft: (d: PlanDraft | undefined) => void;
+  saveRoutine: (r: Routine) => void;
+  deleteRoutine: (id: string) => void;
   setActivity: (a: DailyActivity) => void;
   setDayType: (date: ISODate, t: DayType | undefined) => void;
 
@@ -99,6 +116,8 @@ const initialData = () => ({
   photos: [] as ProgressPhoto[],
   foods: [] as FoodEntry[],
   pantry: [] as PantryItem[],
+  planDraft: undefined as PlanDraft | undefined,
+  routines: [] as Routine[],
   activity: [] as DailyActivity[],
   dayTypeOverride: {} as Record<ISODate, DayType>,
   coach: freshCoach(),
@@ -156,6 +175,9 @@ export const useStore = create<AppState>()(
         return { pantry: [...added, ...s.pantry.filter((p) => !names.has(p.name.toLowerCase()))] };
       }),
       removePantry: (id) => set((s) => ({ pantry: s.pantry.filter((p) => p.id !== id) })),
+      setPlanDraft: (planDraft) => set({ planDraft }),
+      saveRoutine: (r) => set((s) => ({ routines: [r, ...s.routines.filter((x) => x.id !== r.id && x.name.toLowerCase() !== r.name.toLowerCase())] })),
+      deleteRoutine: (id) => set((s) => ({ routines: s.routines.filter((r) => r.id !== id) })),
       setAiReview: (weekOf, review) => set((s) => ({ coach: { ...s.coach, aiReview: { ...s.coach.aiReview, [weekOf]: review } } })),
       setActivity: (a) => set((s) => ({ activity: byDate(s.activity, { ...s.activity.find((x) => x.date === a.date), ...a }) })),
       setDayType: (date, t) => set((s) => {
@@ -192,8 +214,8 @@ export const useStore = create<AppState>()(
         return { ...current, ...p, exercises: withSeedExercises(p.exercises ?? current.exercises), settings: sanitizeSettings({ ...current.settings, ...p.settings }) };
       },
       // Persist data only; actions come from the store definition.
-      partialize: ({ profile, exercises, sessions, activeSession, weighIns, bodyComps, perimeters, photos, foods, pantry, activity, dayTypeOverride, coach, settings }) =>
-        ({ profile, exercises, sessions, activeSession, weighIns, bodyComps, perimeters, photos, foods, pantry, activity, dayTypeOverride, coach, settings }),
+      partialize: ({ profile, exercises, sessions, activeSession, weighIns, bodyComps, perimeters, photos, foods, pantry, planDraft, routines, activity, dayTypeOverride, coach, settings }) =>
+        ({ profile, exercises, sessions, activeSession, weighIns, bodyComps, perimeters, photos, foods, pantry, planDraft, routines, activity, dayTypeOverride, coach, settings }),
     },
   ),
 );

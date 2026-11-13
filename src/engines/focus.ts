@@ -72,7 +72,7 @@ export function relatedGroups(selected: MuscleGroup[], states: Record<MuscleKey,
 }
 
 const ANTAGONIST_MUSCLES: [MuscleKey, MuscleKey][] = [['pecho', 'dors'], ['bic', 'tri'], ['delt', 'deltp'], ['quad', 'isq'], ['abs', 'lumb']];
-const isAntagonist = (a: Exercise, b: Exercise) =>
+export const isAntagonist = (a: Exercise, b: Exercise) =>
   (a.pattern === 'empuje' && b.pattern === 'traccion') || (a.pattern === 'traccion' && b.pattern === 'empuje') ||
   (a.pattern === 'pierna' && b.pattern === 'bisagra') || (a.pattern === 'bisagra' && b.pattern === 'pierna') ||
   ANTAGONIST_MUSCLES.some(([x, y]) => (a.primary[0] === x && b.primary[0] === y) || (a.primary[0] === y && b.primary[0] === x));
@@ -80,7 +80,7 @@ const overlaps = (a: Exercise, b: Exercise) => a.primary.some((m) => b.primary.i
 
 const KEYS: BlockKey[] = ['A', 'B', 'C', 'D', 'E'];
 const MAJOR: MuscleKey[] = ['pecho', 'dors', 'delt', 'deltp', 'bic', 'tri', 'quad', 'glut', 'isq', 'abs'];
-const SHORT: Record<MuscleKey, string> = {
+export const SHORT: Record<MuscleKey, string> = {
   pecho: 'Pecho', dors: 'Dorsal', trap: 'Trapecio', lumb: 'Lumbar', delt: 'Hombro', deltp: 'Hombro post.', bic: 'Bíceps', tri: 'Tríceps',
   ante: 'Antebrazo', quad: 'Cuádriceps', isq: 'Femoral', glut: 'Glúteo', gem: 'Gemelo', abs: 'Abdomen', obl: 'Oblicuos',
 };
@@ -131,12 +131,27 @@ export function generateFocused(input: GeneratorInput & { groups: MuscleGroup[] 
   return finalize(drafts, input, { cardio: groups.includes('cardio'), maxCardioMin: cardioOnly ? 60 : 20 });
 }
 
-/** Related exercises to swap in: same main muscle and pattern first, then same muscle, then same group. */
+/** Related exercises to swap in, closest first (see `similarity`). */
 export function alternativesFor(e: Exercise, exercises: Exercise[], exclude: Set<string>, max = 5): Exercise[] {
   const pool = exercises.filter((x) => !x.archived && x.id !== e.id && !exclude.has(x.id));
-  const tier = (x: Exercise) =>
-    x.primary[0] === e.primary[0] && x.pattern === e.pattern ? 0 : x.primary[0] === e.primary[0] ? 1 : groupOf(x) === groupOf(e) && x.pattern === e.pattern ? 2 : groupOf(x) === groupOf(e) ? 3 : 9;
-  return pool.filter((x) => tier(x) < 9).sort((a, b) => tier(a) - tier(b) || a.name.localeCompare(b.name, 'es')).slice(0, max);
+  return pool.map((x) => [x, similarity(e, x)] as const).filter(([, t]) => t < 9).sort((a, b) => a[1] - b[1] || a[0].name.localeCompare(b[0].name, 'es')).slice(0, max).map(([x]) => x);
+}
+
+/**
+ * How interchangeable `x` is with `e` (lower = closer): same main muscle and movement, same main
+ * muscle, overlapping muscles with the same movement, same movement and body region, same group.
+ */
+export function similarity(e: Exercise, x: Exercise) {
+  const m = e.primary[0];
+  if (m && x.primary[0] === m && x.pattern === e.pattern && x.plane === e.plane) return 0;
+  if (m && x.primary[0] === m && x.pattern === e.pattern) return 0.5;
+  if (m && x.primary[0] === m) return 1;
+  const overlap = x.primary.some((k) => e.primary.includes(k) || e.secondary.includes(k)) || e.primary.some((k) => x.secondary.includes(k));
+  if (overlap && x.pattern === e.pattern) return 2;
+  if (x.pattern === e.pattern && x.region === e.region) return 3;
+  if (overlap) return 4;
+  if (groupOf(x) === groupOf(e)) return 5;
+  return 9;
 }
 
 /** Applies the user's exercise swaps to a generated plan, re-prescribing load/reps for the new one. */

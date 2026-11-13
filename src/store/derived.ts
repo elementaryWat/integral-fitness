@@ -76,7 +76,8 @@ function useComputeDerived() {
     };
     const focus = s.settings.focus ?? [];
     const generated = focus.length ? generateFocused({ ...genInput, groups: focus }) : generateSession(genInput);
-    const plan = applySwaps(generated, s.settings.swaps ?? {}, ex, s.sessions, deload);
+    const draft = s.planDraft?.date === day && s.planDraft.blocks.length ? s.planDraft : undefined;
+    const plan = draft ? draft.blocks : applySwaps(generated, s.settings.swaps ?? {}, ex, s.sessions, deload);
     const weight = ctx.weightOn(day);
     const rate = weightSlope(s.weighIns, addDays(day, -13), day);
     return {
@@ -86,6 +87,8 @@ function useComputeDerived() {
       states,
       balance,
       plan,
+      planName: draft ? draft.name ?? 'Sesión editada' : null,
+      generatedPlan: generated,
       deload,
       weight,
       rate,

@@ -33,7 +33,7 @@ export class RelayStore {
   pair(code) {
     let p = this.pairs.get(code);
     if (!p) {
-      p = { session: null, rev: 0, sets: [], seq: 0, live: null };
+      p = { session: null, rev: 0, sets: [], seq: 0, live: null, daily: {} };
       this.pairs.set(code, p);
     }
     return p;
@@ -80,6 +80,19 @@ export class RelayStore {
   setsSince(code, since) {
     const p = this.pair(code);
     return { sessionId: p.session?.id ?? null, seq: p.seq, sets: p.sets.filter((l) => l.seq > since) };
+  }
+
+  /** Daily wearable metrics from the watch, merged per date; only the last 14 days are kept. */
+  putDaily(code, date, metrics) {
+    const p = this.pair(code);
+    p.daily = { ...(p.daily ?? {}), [date]: { ...(p.daily?.[date] ?? {}), ...metrics, at: Date.now() } };
+    const keep = Object.keys(p.daily).sort().slice(-14);
+    p.daily = Object.fromEntries(keep.map((d) => [d, p.daily[d]]));
+    this.save();
+  }
+
+  getDaily(code) {
+    return this.pair(code).daily ?? {};
   }
 
   setLive(code, live) {
@@ -160,7 +173,7 @@ export function createRelay({ file, ai } = {}) {
         }
       }
 
-      const m = url.pathname.match(/^\/v1\/([^/]+)\/(session|sets|live)$/);
+      const m = url.pathname.match(/^\/v1\/([^/]+)\/(session|sets|live|daily)$/);
       if (!m) return send(404, { error: 'not found' });
       const code = m[1].toUpperCase();
       if (!CODE_RE.test(code)) return send(400, { error: 'invalid pairing code' });
@@ -192,6 +205,18 @@ export function createRelay({ file, ai } = {}) {
           store.setLive(code, { hr: isNum(hr) ? hr : null, mode: typeof mode === 'string' ? mode : null, qi: Number.isInteger(qi) ? qi : null });
           return send(200, { ok: true });
         }
+        case 'POST daily': {
+          const b = await readBody(req);
+          if (typeof b.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(b.date)) return send(400, { error: 'invalid date' });
+          const metrics = {};
+          for (const k of ['steps', 'deepSleepMin', 'sleepMin', 'restingHr']) {
+            if (isNum(b[k]) && b[k] > 0 && b[k] < 200000) metrics[k] = Math.round(b[k]);
+          }
+          store.putDaily(code, b.date, metrics);
+          return send(200, { ok: true });
+        }
+        case 'GET daily':
+          return send(200, { days: store.getDaily(code) });
         case 'GET live':
           return send(200, { live: store.pair(code).live });
         default:

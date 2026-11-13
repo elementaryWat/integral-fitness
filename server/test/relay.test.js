@@ -50,3 +50,13 @@ test('live heart rate', () => withRelay(async (call) => {
   assert.equal(live.hr, 141);
   assert.equal(live.mode, 'set');
 }));
+
+test('daily wearable metrics are merged per date and validated', () => withRelay(async (call) => {
+  assert.equal((await call('POST', '/v1/ABC123/daily', { date: 'hoy', steps: 10 })).status, 400);
+  await call('POST', '/v1/ABC123/daily', { date: '2026-11-13', steps: 5400, restingHr: 54, sleepMin: -1 });
+  await call('POST', '/v1/ABC123/daily', { date: '2026-11-13', deepSleepMin: 82 });
+  const { days } = (await call('GET', '/v1/ABC123/daily')).body;
+  assert.equal(days['2026-11-13'].steps, 5400);
+  assert.equal(days['2026-11-13'].deepSleepMin, 82);
+  assert.equal(days['2026-11-13'].sleepMin, undefined);
+}));

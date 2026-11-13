@@ -61,3 +61,16 @@ export const deleteSession = (l: WatchLink) => call(l, 'DELETE', `/v1/${l.code}/
 export const getSets = (l: WatchLink, since: number) =>
   call<{ sessionId: string | null; seq: number; sets: (SetLog & { seq: number })[] }>(l, 'GET', `/v1/${l.code}/sets?since=${since}`);
 export const getLive = (l: WatchLink) => call<{ live: WatchLive | null }>(l, 'GET', `/v1/${l.code}/live`);
+
+export interface WatchDaily { steps?: number; deepSleepMin?: number; sleepMin?: number; restingHr?: number; at?: number }
+export const getDaily = (l: WatchLink) => call<{ days: Record<string, WatchDaily> }>(l, 'GET', `/v1/${l.code}/daily`);
+
+/** Watch values for a day as a DailyActivity patch (HRV and manual fields the watch lacks are left untouched). */
+export function dailyToActivity(date: string, d: WatchDaily) {
+  const out: { date: string; steps?: number; deepSleepMin?: number; sleepMin?: number; restingHr?: number } = { date };
+  for (const k of ['steps', 'deepSleepMin', 'sleepMin', 'restingHr'] as const) {
+    const v = d[k];
+    if (typeof v === 'number' && v > 0) out[k] = v;
+  }
+  return Object.keys(out).length > 1 ? out : null;
+}

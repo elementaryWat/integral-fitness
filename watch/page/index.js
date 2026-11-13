@@ -3,7 +3,7 @@
 // recovers) with vibration, and syncs every set through the side service → relay → phone.
 import { BasePage } from '@zeppos/zml/base-page'
 import { align, createWidget, prop, text_style, widget } from '@zos/ui'
-import { Accelerometer, FREQ_MODE_NORMAL, HeartRate, Vibrator, VIBRATOR_SCENE_SHORT_MIDDLE, VIBRATOR_SCENE_STRONG_REMINDER } from '@zos/sensor'
+import { Accelerometer, FREQ_MODE_NORMAL, HeartRate, Sleep, Step, Vibrator, VIBRATOR_SCENE_SHORT_MIDDLE, VIBRATOR_SCENE_STRONG_REMINDER } from '@zos/sensor'
 import { pauseDropWristScreenOff, resetDropWristScreenOff, resetPageBrightTime, setPageBrightTime } from '@zos/display'
 import { localStorage } from '@zos/storage'
 import { px } from '@zos/utils'
@@ -15,6 +15,8 @@ const W = 390
 const heart = new HeartRate()
 const accel = new Accelerometer()
 const vibrator = new Vibrator()
+const steps = new Step()
+const sleep = new Sleep()
 
 // ---------- tiny widget helpers (design units are px of a 390-wide screen) ----------
 function text(o) {
@@ -33,6 +35,8 @@ function button(o) {
     click_func: o.onClick,
   })
 }
+const pad = (n) => String(n).padStart(2, '0')
+const localDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 const setText = (w, t, extra) => w.setProperty(prop.MORE, { text: t, ...(extra || {}) })
 
 // Widget refs, screens and handles live outside the page state (they are not data).
@@ -102,6 +106,7 @@ Page(
       setText(ui.infoBody, 'Buscando la sesión de hoy en Recomp')
       timer = setInterval(() => this.tick(), 1000)
       this.loadSession()
+      this.sendDaily()
     },
 
     onDestroy() {
@@ -364,12 +369,29 @@ Page(
       setText(ui.infoBtn, 'BUSCAR NUEVA SESIÓN')
     },
 
+    // ---------- daily metrics (steps, sleep, resting HR) for the phone's recovery card ----------
+    sendDaily() {
+      const params = { date: localDate(new Date()) }
+      try { params.steps = steps.getCurrent() } catch (e) { /* not available */ }
+      try { params.restingHr = heart.getResting() } catch (e) { /* not available */ }
+      try {
+        sleep.updateInfo()
+        const info = sleep.getInfo()
+        if (info && info.totalTime > 0) {
+          params.deepSleepMin = info.deepTime
+          params.sleepMin = info.totalTime
+        }
+      } catch (e) { /* no sleep record yet */ }
+      this.request({ method: 'daily.post', params }).catch(() => {})
+    },
+
     // ---------- clock ----------
     tick() {
       const st = this.state
       st.ticks += 1
       if (st.mode === 'set') this.renderHr()
       if (st.mode === 'rest') this.renderRest()
+      if (st.ticks % 300 === 0) this.sendDaily()
       if (st.ticks % 5 === 0) {
         this.flush()
         if (st.mode === 'set' || st.mode === 'rest') {

@@ -42,6 +42,8 @@ AppSideService(
           return run(this.relay('GET', 'session'))
         case 'set.post':
           return run(this.relay('POST', 'sets', { sessionId: p.sessionId, log: p.log }))
+        case 'daily.post':
+          return run(this.relay('POST', 'daily', p))
         case 'live.post':
           return run(this.relay('POST', 'live', { hr: p.hr, mode: p.mode, qi: p.qi }))
         default:

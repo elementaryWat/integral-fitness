@@ -1,0 +1,11 @@
+{
+  "name": "recomp-watch",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Recomp mini-app for Amazfit Bip 6 (Zepp OS)",
+  "devDependencies": {
+    "@zeppos/device-types": "^4.0.0",
+    "@zeppos/zeus-cli": "^1.10.0",
+    "@zeppos/zml": "^0.0.43"
+  }
+}

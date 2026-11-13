@@ -1,0 +1,5 @@
+{
+  "compilerOptions": { "module": "esnext", "target": "es2020", "checkJs": true, "moduleResolution": "node", "noEmit": true, "maxNodeModuleJsDepth": 0, "skipLibCheck": true },
+  "include": ["app.js", "page/**/*.js", "app-side/**/*.js", "shared/**/*.js", "global.d.ts"],
+  "exclude": ["node_modules"]
+}

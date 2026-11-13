@@ -1,0 +1,18 @@
+{
+  "name": "recomp-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bridge between the Zepp OS watch app and the Recomp phone app (Phase 2 AI endpoints will live here too).",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "openai": "^7.56.0"
+  }
+}

@@ -89,3 +89,24 @@ test('coach review sends both photos only when two are provided', async () => {
     assert.equal(client.calls[1].input[0].content.filter((c) => c.type === 'input_image').length, 2);
   });
 });
+
+test('accepts image/jpg and whitespace in base64 (what iOS sends)', async () => {
+  const client = fakeClient({ food_scan: scan });
+  await withServer(client, async (call) => {
+    const jpg = 'data:image/jpg;base64,' + Buffer.from('fake-jpeg').toString('base64').replace(/(.{4})/, '$1\n');
+    const r = await call('POST', '/v1/ABC123/ai/scan', { image: jpg });
+    assert.equal(r.status, 200);
+    assert.match(client.calls[0].input[0].content[1].image_url, /^data:image\/jpeg;base64,[^\s]+$/);
+  });
+});
+
+test('builds a routine limited to the given catalog ids', async () => {
+  const client = fakeClient({ ai_routine: { name: 'Torso', rationale: 'x', blocks: [{ exerciseIds: ['bench', 'ghost'], rounds: 3, why: '' }, { exerciseIds: ['ghost'], rounds: 2, why: '' }] } });
+  await withServer(client, async (call) => {
+    assert.equal((await call('POST', '/v1/ABC123/ai/routine', { catalog: [{ id: 'bench' }] })).status, 400);
+    const r = await call('POST', '/v1/ABC123/ai/routine', { groups: ['pecho'], minutes: 45, catalog: [{ id: 'bench' }, { id: 'row' }] });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.blocks.map((b) => b.exerciseIds), [['bench']]);
+    assert.deepEqual(client.calls[0].text.format.schema.properties.blocks.items.properties.exerciseIds.items.enum, ['bench', 'row']);
+  });
+});

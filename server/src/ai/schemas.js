@@ -65,3 +65,22 @@ export const COACH_NARRATIVE = {
     photoNote: nullable(str),
   }),
 };
+
+/** Routine schema built per request: exercise ids are limited to the user's own library. */
+export function routineFormat(ids) {
+  return {
+    name: 'ai_routine',
+    schema: obj({
+      name: str,
+      rationale: str,
+      blocks: {
+        type: 'array',
+        items: obj({
+          exerciseIds: { type: 'array', items: { type: 'string', enum: ids } },
+          rounds: { type: 'integer' },
+          why: str,
+        }),
+      },
+    }),
+  };
+}

@@ -48,3 +48,14 @@ async function post<T>(l: WatchLink, action: string, body: unknown): Promise<T> 
 export const scanFood = (l: WatchLink, image: string, hint?: ScanKind) => post<FoodScan>(l, 'scan', { image, hint });
 export const draftExercise = (l: WatchLink, text: string) => post<ExerciseDraftRaw>(l, 'exercise', { text });
 export const coachReview = (l: WatchLink, review: unknown, stats: unknown, photos?: [string, string]) => post<CoachNarrative>(l, 'coach', { review, stats, photos });
+
+export interface RoutineRequest {
+  groups: string[];
+  minutes: number;
+  experience?: string;
+  goal?: string;
+  deload: boolean;
+  muscles: Record<string, { sets: number; target: number; rec: number; status: string }>;
+  catalog: { id: string; name: string; primary: string[]; secondary: string[]; pattern: string; plane?: string; discipline: string; advanced?: boolean }[];
+}
+export const buildRoutine = (l: WatchLink, req: RoutineRequest) => post<import('../engines/planEdit').AiRoutineResponse>(l, 'routine', req);

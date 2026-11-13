@@ -5,14 +5,17 @@ import { Screen } from '../components/Screen';
 import { fmtSigned } from '../data';
 import { addDays, shortDay } from '../domain/dates';
 import { muscleName, type MuscleKey } from '../domain/muscles';
+import { AiRequestError, coachReview } from '../ai/api';
+import type { WeeklyReview } from '../engines/coachRules';
 import { weeklyReview } from '../engines/coachRules';
+import type { TrendSeries } from '../engines/trends';
 import { weeklyTrends } from '../engines/trends';
 import { useNav } from '../navigation';
-import { photoUri } from '../photos';
+import { photoDataUrl, photoUri } from '../photos';
 import { useStore } from '../store';
 import { useDerived } from '../store/derived';
 import { C, body, cond, em, mono } from '../theme';
-import { Card, Empty, Eyebrow, GhostButton, Placeholder, ScreenHeader, T } from '../ui';
+import { Card, Empty, Eyebrow, GhostButton, Placeholder, PrimaryButton, ScreenHeader, T } from '../ui';
 
 const SERIES: [TrendKey, string, string][] = [
   ['f', 'FUERZA REL.', C.lime],
@@ -22,12 +25,39 @@ const SERIES: [TrendKey, string, string][] = [
 ];
 const TONE = { fatiga: C.coral, rezagado: C.cyan, ok: C.lime } as const;
 
+function reviewBody(review: WeeklyReview) {
+  return {
+    weekOf: review.weekOf,
+    weekNumber: review.weekNumber,
+    headline: review.headline,
+    summary: review.summary,
+    signals: review.signals,
+    proposals: review.proposals,
+  };
+}
+
+function trendStats(trends: TrendSeries, goal: string | undefined, targetRateKgWk: number | undefined, weightKg: number, fatPct: number | undefined) {
+  const n = 8;
+  return {
+    weeks: trends.weeks.slice(-n),
+    fuerza: trends.f.slice(-n),
+    musculo: trends.m.slice(-n),
+    grasa: trends.g.slice(-n),
+    balanceKcal: trends.b.slice(-n),
+    goal: goal ?? null,
+    targetRateKgWk: targetRateKgWk ?? null,
+    weightKg,
+    fatPct: fatPct ?? null,
+  };
+}
+
 export function CoachScreen() {
   const s = useStore();
   const d = useDerived();
   const nav = useNav();
   const [visible, setVisible] = useState<Record<TrendKey, boolean>>({ f: true, m: true, g: true, b: true });
   const [rejected, setRejected] = useState<string[]>([]);
+  const [busy, setBusy] = useState<'review' | 'photos' | null>(null);
 
   const review = useMemo(
     () => weeklyReview({ today: d.today, profile: d.profile, weightKg: d.weight, states: d.states, sessions: d.all, ex: d.ex, weighIns: s.weighIns, bodyComps: s.bodyComps, perimeters: s.perimeters, foods: s.foods, coach: s.coach }),
@@ -56,11 +86,53 @@ export function CoachScreen() {
     s.coach.deloadWeekOf ? `descarga ${shortDay(s.coach.deloadWeekOf)}` : null,
   ].filter((x): x is string => !!x);
 
+  const ai = s.coach.aiReview?.[review.weekOf];
+
   const reset = () =>
     Alert.alert('Borrar todos los datos', 'Se eliminan perfil, sesiones, medidas, comidas y ajustes. No se puede deshacer.', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Borrar', style: 'destructive', onPress: s.reset },
     ]);
+
+  const sendReview = async (photos?: [string, string]) => {
+    setBusy(photos ? 'photos' : 'review');
+    try {
+      const res = await coachReview(
+        s.settings.watch,
+        reviewBody(review),
+        trendStats(trends, d.profile.goal, d.profile.targetRateKgWk, d.weight, d.fatPct),
+        photos,
+      );
+      s.setAiReview(review.weekOf, { ...res, at: Date.now() });
+    } catch (e) {
+      Alert.alert('IA', e instanceof AiRequestError ? e.message : 'No se pudo completar la revisión.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const analyzePhotos = () => {
+    if (!first || !last || busy) return;
+    const older = first;
+    const newer = last;
+    const sendPhotos = async () => {
+      setBusy('photos');
+      try {
+        const photos = await Promise.all([photoDataUrl(older), photoDataUrl(newer)]);
+        await sendReview([photos[0], photos[1]]);
+      } catch (e) {
+        setBusy(null);
+        if (!(e instanceof AiRequestError)) Alert.alert('IA', 'No se pudieron leer las fotos de progreso.');
+      }
+    };
+    Alert.alert('Analizar fotos', 'Se enviarán tu primera y última foto de frente a OpenAI. No se guardan en el servidor.', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Enviar', onPress: () => { sendPhotos(); } },
+    ]);
+  };
+
+  const photoCopy = ai?.photoNote
+    ?? (last ? 'Compara misma luz y postura.' : 'Añade fotos de frente en Cuerpo para comparar semanas.');
 
   return (
     <Screen>
@@ -84,10 +156,28 @@ export function CoachScreen() {
       </Card>
 
       <View style={{ backgroundColor: C.text, borderRadius: 20, padding: 18, gap: 10 }}>
-        <T style={[mono(10), { letterSpacing: em(10, 0.12), color: C.bg }]}>RESUMEN</T>
-        <T style={[cond(26, 800, 1.1), { color: C.bg, textTransform: 'uppercase' }]}>{review.headline}</T>
-        <T style={[body(14, 500, 1.45), { color: C.bg }]}>{review.summary}</T>
+        <T style={[mono(10), { letterSpacing: em(10, 0.12), color: C.bg }]}>{ai ? 'RESUMEN · IA' : 'RESUMEN'}</T>
+        <T style={[cond(26, 800, 1.1), { color: C.bg, textTransform: 'uppercase' }]}>{ai ? ai.headline : review.headline}</T>
+        <T style={[body(14, 500, 1.45), { color: C.bg }]}>{ai ? ai.summary : review.summary}</T>
       </View>
+
+      {ai && (ai.wins.length > 0 || ai.watch.length > 0) ? (
+        <Card>
+          {ai.wins.length > 0 ? (
+            <View style={{ gap: 6 }}>
+              <Eyebrow color={C.lime}>LO QUE VA BIEN</Eyebrow>
+              {ai.wins.map((line, i) => <T key={`win-${i}`} style={[body(14, 500, 1.4)]}>{line}</T>)}
+            </View>
+          ) : null}
+          {ai.watch.length > 0 ? (
+            <View style={{ gap: 6 }}>
+              <Eyebrow color={C.amber}>A VIGILAR</Eyebrow>
+              {ai.watch.map((line, i) => <T key={`watch-${i}`} style={[body(14, 500, 1.4)]}>{line}</T>)}
+            </View>
+          ) : null}
+        </Card>
+      ) : null}
+      {!ai ? <PrimaryButton label={busy === 'review' ? 'Revisando…' : 'Revisión con IA'} onPress={() => { sendReview(); }} disabled={busy !== null} /> : null}
 
       <Card gap={0}>
         <Eyebrow style={{ paddingBottom: 4 }}>SEÑALES DETECTADAS</Eyebrow>
@@ -122,9 +212,8 @@ export function CoachScreen() {
             </View>
           ))}
         </View>
-        <T style={[body(13, 400, 1.4), { color: C.soft }]}>
-          {last ? 'Análisis visual con IA en la Fase 2. Por ahora, compara misma luz y postura.' : 'Añade fotos de frente en Cuerpo para comparar semanas.'}
-        </T>
+        <T style={[body(13, 400, 1.4), { color: C.soft }]}>{photoCopy}</T>
+        {last ? <GhostButton label={busy === 'photos' ? 'ANALIZANDO…' : 'ANALIZAR FOTOS'} onPress={analyzePhotos} /> : null}
       </Card>
 
       <Card gap={8}>
@@ -167,7 +256,6 @@ export function CoachScreen() {
         )}
       </Card>
 
-      <T style={[mono(10, 500, 1.4), { color: C.dim, textAlign: 'center' }]}>REVISIÓN BASADA EN REGLAS. EL TEXTO DEL COACH CON IA LLEGA EN LA FASE 2.</T>
       <GhostButton label="EDITAR PERFIL Y OBJETIVO" onPress={() => nav.navigate('ProfileEdit')} />
       <GhostButton label="BORRAR TODOS LOS DATOS" onPress={reset} color={C.coral} />
     </Screen>

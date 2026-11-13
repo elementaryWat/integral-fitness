@@ -1,9 +1,10 @@
-import { Pressable, View } from 'react-native';
+import { Alert, Pressable, View } from 'react-native';
 import { Hatch } from '../components/charts';
 import { Screen } from '../components/Screen';
 import { fmt, fmtSigned } from '../data';
 import { addDays, dayLetter, shortDay, startOfWeek } from '../domain/dates';
 import type { DayType } from '../domain/types';
+import { aiReady, type ScanKind } from '../ai/api';
 import { useNav } from '../navigation';
 import { useStore } from '../store';
 import { useDerived } from '../store/derived';
@@ -130,7 +131,18 @@ function CarbCyclingCard() {
   );
 }
 
+const SCAN_KINDS: ScanKind[] = ['plato', 'etiqueta', 'ticket'];
+
 function ScanCard() {
+  const nav = useNav();
+  const link = useStore((s) => s.settings.watch);
+  const open = (kind: ScanKind) => {
+    if (!aiReady(link)) {
+      Alert.alert('IA', 'Configura el servidor en Hoy → Bip 6 → Reloj para usar la IA.');
+      return;
+    }
+    nav.navigate('FoodScan', { kind });
+  };
   return (
     <Card>
       <SectionTitle eyebrow="REGISTRO RÁPIDO · VISIÓN" title="Foto → alimentos y macros" />
@@ -140,10 +152,20 @@ function ScanCard() {
         <View style={{ position: 'absolute', right: 14, bottom: 14, width: 22, height: 22, borderRightWidth: 2, borderBottomWidth: 2, borderColor: C.lime }} />
         <T style={[mono(11, 500), { color: C.muted, position: 'absolute' }]}>PLATO · ETIQUETA · TICKET</T>
       </View>
-      <View style={{ height: 48, borderRadius: 24, backgroundColor: '#2f322e', alignItems: 'center', justifyContent: 'center' }}>
-        <T style={[cond(18), { color: C.muted, textTransform: 'uppercase' }]}>Próximamente · Fase 2</T>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {SCAN_KINDS.map((kind) => (
+          <Pressable
+            key={kind}
+            onPress={() => open(kind)}
+            accessibilityRole="button"
+            accessibilityLabel={`Escanear ${kind}`}
+            style={({ pressed }) => ({ flex: 1, height: 48, borderRadius: 24, backgroundColor: C.lime, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.85 : 1 })}
+          >
+            <T style={[cond(16, 800), { color: C.bg, textTransform: 'uppercase' }]}>{kind}</T>
+          </Pressable>
+        ))}
       </View>
-      <T style={[mono(10, 500, 1.4), { color: C.dim }]}>EL ESCANEO CON VISIÓN + LLM SE CONECTA CON EL BACKEND DE IA.</T>
+      <T style={[mono(10, 500, 1.4), { color: C.dim }]}>LA FOTO SE ENVÍA A LA IA Y NO SE GUARDA.</T>
     </Card>
   );
 }

@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import { Alert, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { AiRequestError, draftExercise } from '../ai/api';
+import { exerciseFromDraft } from '../ai/logic';
 import { Screen } from '../components/Screen';
 import { DISCIPLINES, LOAD_MODE_LABEL, PATTERN_LABEL } from '../domain/catalog';
 import { uid } from '../domain/dates';
-import { MUSCLE_KEYS, muscleName, type MuscleKey } from '../domain/muscles';
+import { MUSCLE_INFO, MUSCLE_KEYS, muscleName, type MuscleKey } from '../domain/muscles';
 import type { Discipline, Exercise, LoadMode, Pattern, Plane, Region, Unit } from '../domain/types';
 import type { RootStackParamList } from '../navigation';
 import { useStore } from '../store';
-import { C, body, mono } from '../theme';
+import { C, body } from '../theme';
 import { Card, ChipSelect, Field, GhostButton, PrimaryButton, SheetHeader, T, num } from '../ui';
 
 const PATTERNS = Object.keys(PATTERN_LABEL) as Pattern[];
@@ -37,6 +39,9 @@ export function ExerciseEditScreen({ route, navigation }: NativeStackScreenProps
   const [lo, setLo] = useState(String(existing?.repRange[0] ?? 8));
   const [hi, setHi] = useState(String(existing?.repRange[1] ?? 12));
   const [levers, setLevers] = useState(existing?.levers?.join(', ') ?? '');
+  const [legImpact, setLegImpact] = useState<'bajo' | 'alto'>(existing?.legImpact ?? 'bajo');
+  const [describe, setDescribe] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
 
   const usesPlane = pattern === 'empuje' || pattern === 'traccion';
   const loadable = loadMode === 'peso' || loadMode === 'lastre';
@@ -51,14 +56,14 @@ export function ExerciseEditScreen({ route, navigation }: NativeStackScreenProps
       name: name.trim(),
       discipline, loadMode, pattern, unit,
       plane: usesPlane ? plane ?? 'horizontal' : undefined,
-      region: regionFor(pattern),
+      region: primary[0] ? MUSCLE_INFO[primary[0]].region : regionFor(pattern),
       primary, secondary: secondary.filter((m) => !primary.includes(m)),
       step: loadMode === 'palanca' ? 1 : loadable ? num(step) ?? 0 : 0,
       defaultLoad: loadMode === 'palanca' ? 0 : loadable ? num(load) ?? 0 : 0,
       defaultReps: num(reps)!,
       repRange: [num(lo)!, num(hi)!],
       levers: loadMode === 'palanca' ? (leverList.length ? leverList : ['Nivel 1', 'Nivel 2', 'Nivel 3']) : undefined,
-      legImpact: discipline === 'Cardio' ? 'bajo' : undefined,
+      legImpact: discipline === 'Cardio' ? legImpact : undefined,
       archived: existing?.archived,
       custom: existing ? existing.custom : true,
     };
@@ -74,9 +79,42 @@ export function ExerciseEditScreen({ route, navigation }: NativeStackScreenProps
     ]);
   };
 
+  const fillWithAi = async () => {
+    const text = describe.trim();
+    if (text.length < 3 || aiBusy) return;
+    setAiBusy(true);
+    try {
+      const raw = await draftExercise(useStore.getState().settings.watch, text);
+      const e = exerciseFromDraft(raw);
+      setName(e.name);
+      setDiscipline(e.discipline);
+      setLoadMode(e.loadMode);
+      setPattern(e.pattern);
+      setPlane(e.plane ?? (e.pattern === 'empuje' || e.pattern === 'traccion' ? 'horizontal' : undefined));
+      setUnit(e.unit);
+      setPrimary(e.primary);
+      setSecondary(e.secondary);
+      setStep(String(e.step));
+      setLoad(String(e.defaultLoad));
+      setReps(String(e.defaultReps));
+      setLo(String(e.repRange[0]));
+      setHi(String(e.repRange[1]));
+      setLevers(e.levers?.join(', ') ?? '');
+      setLegImpact(e.legImpact ?? 'bajo');
+    } catch (err) {
+      Alert.alert('IA', err instanceof AiRequestError ? err.message : 'No se pudo rellenar el ejercicio.');
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   return (
     <Screen sheet>
       <SheetHeader eyebrow={existing ? 'EDITAR EJERCICIO' : 'NUEVO EJERCICIO'} title={name.trim() || 'Ejercicio'} onClose={() => navigation.goBack()} />
+      <Card>
+        <Field label="DESCRIBE EL EJERCICIO" value={describe} onChange={setDescribe} keyboard="default" placeholder="Remo a una mano con mancuerna, de pie" />
+        <PrimaryButton label={aiBusy ? 'Rellenando…' : 'Rellenar con IA'} onPress={() => { fillWithAi(); }} disabled={describe.trim().length < 3 || aiBusy} />
+      </Card>
       <Card>
         <Field label="NOMBRE" value={name} onChange={setName} keyboard="default" placeholder="Remo con mancuerna" />
         <ChipSelect label="DISCIPLINA" options={DISCIPLINES.map((d) => ({ value: d, label: d }))} selected={[discipline]} onToggle={setDiscipline} />
@@ -94,6 +132,7 @@ export function ExerciseEditScreen({ route, navigation }: NativeStackScreenProps
           </View>
         )}
         {loadMode === 'palanca' && <Field label="PROGRESIONES (DE FÁCIL A DIFÍCIL, SEPARADAS POR COMAS)" value={levers} onChange={setLevers} keyboard="default" placeholder="Tuck, Una pierna, Completo" />}
+        {discipline === 'Cardio' && <ChipSelect label="IMPACTO EN PIERNAS" options={[{ value: 'bajo' as const, label: 'Bajo' }, { value: 'alto' as const, label: 'Alto' }]} selected={[legImpact]} onToggle={setLegImpact} />}
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <Field flex label="OBJETIVO" value={reps} onChange={setReps} keyboard="number-pad" suffix={unit.toUpperCase()} />
           <Field flex label="RANGO MÍN." value={lo} onChange={setLo} keyboard="number-pad" />
@@ -108,7 +147,6 @@ export function ExerciseEditScreen({ route, navigation }: NativeStackScreenProps
         </Card>
       )}
 
-      <T style={[mono(10, 500, 1.4), { color: C.dim }]}>ASISTENTE IA PARA CLASIFICAR EJERCICIOS · PRÓXIMAMENTE (FASE 2)</T>
       <PrimaryButton label="Guardar" onPress={save} disabled={!valid} />
       {existing && <GhostButton label={existing.archived ? 'RESTAURAR' : 'ARCHIVAR'} onPress={archive} color={existing.archived ? C.lime : C.coral} />}
       {!valid && <T style={[body(12, 400), { color: C.muted, textAlign: 'center' }]}>Necesita nombre, al menos un músculo principal y rango de repeticiones.</T>}

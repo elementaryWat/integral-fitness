@@ -3,7 +3,7 @@ import { Pressable, View } from 'react-native';
 import { BodyMap } from '../components/charts';
 import { Screen } from '../components/Screen';
 import { STATUS_COLOR, STATUS_LABEL, fmt, fmtSigned } from '../data';
-import { longDay } from '../domain/dates';
+import { addDays, longDay } from '../domain/dates';
 import { MUSCLE_INFO, type MuscleKey } from '../domain/muscles';
 import { BALANCE_LABEL } from '../engines/balance';
 import { buildQueue } from '../engines/generator';
@@ -15,18 +15,32 @@ import { Card, Eyebrow, LinkButton, Row, T } from '../ui';
 
 function RecoveryCard() {
   const nav = useNav();
-  const { recovery: r } = useDerived();
+  const { recovery: r, today } = useDerived();
+  const activity = useStore((s) => s.activity);
+  const watchOn = useStore((s) => s.settings.watch.enabled);
+  const healthStatus = useUi((s) => s.healthStatus);
+  const baseDays = activity.filter((a) => a.date < today && a.date >= addDays(today, -7) && (a.hrvMs || a.restingHr)).length;
+  const scoreHint = r.score !== null ? null
+    : !r.hrv && !r.restingHr ? (watchOn ? 'ABRE RECOMP EN EL RELOJ' : 'TOCA PARA REGISTRAR')
+    : `BASE ${Math.min(baseDays, 3)}/3 DÍAS`;
   const stats: [string, string, string][] = [
-    ['HRV nocturno', r.hrv ? `${r.hrv.value} MS` : '—', r.hrv?.vsBaselinePct != null ? `${fmtSigned(r.hrv.vsBaselinePct)}% vs 7 d` : 'sin base'],
+    ['HRV nocturno', r.hrv ? `${r.hrv.value} MS` : '—', r.hrv?.vsBaselinePct != null ? `${fmtSigned(r.hrv.vsBaselinePct)}% vs 7 d` : r.hrv ? 'sin base' : healthStatus ?? 'manual'],
     ['Sueño profundo', r.deepSleepMin ? `${Math.floor(r.deepSleepMin / 60)} H ${String(r.deepSleepMin % 60).padStart(2, '0')}` : '—', r.deepSleepMin ? 'última noche' : 'sin dato'],
-    ['FC reposo', r.restingHr ? `${r.restingHr.value} LPM` : '—', r.restingHr?.vsBaseline != null ? `${fmtSigned(Math.round(r.restingHr.vsBaseline))} vs 7 d` : 'sin base'],
+    ['FC reposo', r.restingHr ? `${r.restingHr.value} LPM` : '—', r.restingHr?.vsBaseline != null ? `${fmtSigned(Math.round(r.restingHr.vsBaseline))} vs 7 d` : r.restingHr ? 'sin base' : 'sin dato'],
     ['Pasos', r.steps ? fmt(r.steps) : '—', r.steps ? 'hoy' : 'sin dato'],
   ];
   return (
     <Pressable onPress={() => nav.navigate('ActivityEntry')} accessibilityLabel="Registrar datos de recuperación" style={{ backgroundColor: C.lime, borderRadius: 20, padding: 18, flexDirection: 'row', gap: 18, alignItems: 'flex-end' }}>
       <View style={{ gap: 2 }}>
         <T style={[mono(10), { letterSpacing: em(10, 0.12), color: C.bg }]}>RECUPERACIÓN</T>
-        <T style={[cond(96, 900), { color: C.bg, letterSpacing: em(96, -0.03), marginBottom: -12 }]}>{r.score ?? '—'}</T>
+        {r.score !== null ? (
+          <T style={[cond(96, 900), { color: C.bg, letterSpacing: em(96, -0.03), marginBottom: -12 }]}>{r.score}</T>
+        ) : (
+          <View style={{ gap: 4, maxWidth: 96 }}>
+            <T style={[cond(40, 900), { color: C.bg }]}>—</T>
+            <T style={[mono(9, 600, 1.3), { color: C.bg }]}>{scoreHint}</T>
+          </View>
+        )}
       </View>
       <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', rowGap: 12, columnGap: 10 }}>
         {stats.map(([k, v, d]) => (
@@ -148,7 +162,7 @@ export function HoyScreen() {
   const active = useStore((s) => s.activeSession);
   const { today, plan, deload } = useDerived();
   const setCount = active ? active.queue.length : buildQueue(plan).length;
-  const titles = (active?.blocks ?? plan).filter((b) => b.kind === 'superserie').map((b) => b.title.toLowerCase());
+  const titles = [...new Set((active?.blocks ?? plan).filter((b) => b.kind === 'superserie').map((b) => b.title.toLowerCase()))];
   return (
     <Screen>
       <Row style={{ alignItems: 'flex-end', paddingTop: 6, paddingHorizontal: 2, paddingBottom: 2 }}>

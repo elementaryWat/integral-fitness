@@ -35,6 +35,10 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Recomp usa la cámara para tus fotos de progreso (frente, perfil y espalda).</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Recomp lee tu HRV nocturno de Salud para calcular tu recuperación diaria.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Recomp no escribe datos en Salud.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
 	<key>NSPhotoLibraryUsageDescription</key>

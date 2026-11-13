@@ -13,6 +13,9 @@ export type RootStackParamList = {
   ActivityEntry: undefined;
   ProfileEdit: undefined;
   WatchPair: undefined;
+  FoodScan: { kind: 'plato' | 'etiqueta' | 'ticket' };
+  ExercisePicker: { mode: 'replace' | 'add' | 'addBlock'; block?: number; index?: number };
+  Routines: undefined;
 };
 
 export type TabParamList = {
@@ -36,6 +39,9 @@ export const useUi = create<{
   watchLive: WatchLive | null;
   /** Last sync error, shown on the pairing screen */
   watchError: string | null;
+  /** Last Apple Health read result, shown on the recovery card when HRV is missing */
+  healthStatus: string | null;
+  setHealth: (s: string | null) => void;
   setWatch: (p: { watchStatus?: WatchStatus; watchLive?: WatchLive | null; watchError?: string | null }) => void;
 }>((set) => ({
   watchOpen: false,
@@ -43,5 +49,7 @@ export const useUi = create<{
   watchStatus: 'off',
   watchLive: null,
   watchError: null,
+  healthStatus: null,
+  setHealth: (healthStatus) => set({ healthStatus }),
   setWatch: (p) => set(p),
 }));

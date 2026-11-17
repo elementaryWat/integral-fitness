@@ -1,10 +1,10 @@
-# Recomp — estado del proyecto y siguiente paso
+# Wrep — estado del proyecto y siguiente paso
 
 Última actualización: 2026-11-12. Este documento sirve para retomar el trabajo, en Cursor o en otra sesión, sin el historial de la conversación.
 
 ## Qué es
 
-Recomp es una app de recomposición corporal hecha en **React Native CLI** (0.88, TypeScript, sin Expo), con la interfaz en español. Tiene tres piezas:
+Wrep es una app de recomposición corporal hecha en **React Native CLI** (0.88, TypeScript, sin Expo), con la interfaz en español. Tiene tres piezas:
 
 | Carpeta | Qué es | Estado |
 |---|---|---|

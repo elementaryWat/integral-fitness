@@ -2,7 +2,7 @@
   "configVersion": "v3",
   "app": {
     "appId": 1136058,
-    "appName": "Recomp",
+    "appName": "Wrep",
     "appType": "app",
     "version": {
       "code": 1,
@@ -10,7 +10,7 @@
     },
     "icon": "icon.png",
     "vender": "recomp",
-    "description": "Registro de series, descanso con vibraci\u00f3n y pulso para Recomp"
+    "description": "Registro de series, descanso con vibraci\u00f3n y pulso para Wrep"
   },
   "permissions": [
     "data:os.device.info",
@@ -18,7 +18,9 @@
     "device:os.accelerometer",
     "device:os.local_storage",
     "data:user.hd.step",
-    "data:user.hd.sleep"
+    "data:user.hd.sleep",
+    "data:user.hd.stress",
+    "data:user.hd.pai"
   ],
   "runtime": {
     "apiVersion": {
@@ -62,10 +64,10 @@
   },
   "i18n": {
     "es-ES": {
-      "appName": "Recomp"
+      "appName": "Wrep"
     },
     "en-US": {
-      "appName": "Recomp"
+      "appName": "Wrep"
     }
   },
   "defaultLanguage": "es-ES"

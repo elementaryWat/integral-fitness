@@ -1,6 +1,6 @@
 // Side service: runs inside the Zepp phone app. The watch can only talk to it over Bluetooth;
-// it forwards requests to the Recomp relay using the server URL and pairing code entered in the
-// mini-app settings (Zepp app → Perfil → Recomp → Ajustes).
+// it forwards requests to the Wrep relay using the server URL and pairing code entered in the
+// mini-app settings (Zepp app → Perfil → Wrep → Ajustes).
 import { BaseSideService } from '@zeppos/zml/base-side'
 import { DEFAULT_LINK } from '../shared/defaults'
 

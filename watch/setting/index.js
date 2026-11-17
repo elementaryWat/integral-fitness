@@ -1,5 +1,5 @@
-// Settings page shown in the Zepp phone app (Developer Mode → Recomp → Settings). Stores the relay
-// URL and the pairing code that the Recomp app shows in Hoy → Bip 6 → Reloj.
+// Settings page shown in the Zepp phone app (Developer Mode → Wrep → Settings). Stores the relay
+// URL and the pairing code that the Wrep app shows in Hoy → Bip 6 → Reloj.
 import { DEFAULT_LINK } from '../shared/defaults'
 
 const block = (style, children) => View({ style: { display: 'block', ...style } }, children)
@@ -27,9 +27,9 @@ AppSettingsPage({
     const code = props.settingsStorage.getItem('pairCode') || DEFAULT_LINK.pairCode
     const ok = !!url && !!code
     return block({ padding: '16px 20px 40px' }, [
-      block({ fontSize: '24px', fontWeight: 'bold', color: '#111111' }, [Text({}, ['Recomp · Reloj'])]),
+      block({ fontSize: '24px', fontWeight: 'bold', color: '#111111' }, [Text({}, ['Wrep · Reloj'])]),
       block({ fontSize: '14px', color: '#6b6b6b', marginTop: '6px', lineHeight: '20px' }, [
-        Text({}, ['Copia la URL del servidor y el código que muestra la app Recomp en Hoy → Bip 6 → Reloj.']),
+        Text({}, ['Copia la URL del servidor y el código que muestra la app Wrep en Hoy → Bip 6 → Reloj.']),
       ]),
       field(props, 'serverUrl', 'URL DEL SERVIDOR', 'https://tu-servidor.up.railway.app', (v) => v.trim().replace(/\/+$/, ''), DEFAULT_LINK.serverUrl),
       field(props, 'pairCode', 'CÓDIGO DE EMPAREJAMIENTO', 'ABC123', (v) => v.trim().toUpperCase(), DEFAULT_LINK.pairCode),

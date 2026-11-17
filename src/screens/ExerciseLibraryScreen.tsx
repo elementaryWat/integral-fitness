@@ -128,7 +128,7 @@ export function ExerciseLibraryScreen() {
                     <T style={[mono(10), { color: C.lime, letterSpacing: em(10, 0.12), paddingBottom: 2 }]}>{muscleName(m).toUpperCase()} · {xs.length}</T>
                   ) : null}
                   {xs.sort((a, b) => a.name.localeCompare(b.name, 'es')).map((e, i) => (
-                    <ExerciseRow key={e.id} e={e} first={i === 0} onPress={() => nav.navigate('ExerciseEdit', { id: e.id })} />
+                    <ExerciseRow key={e.id} e={e} first={i === 0} onPress={() => nav.navigate('ExerciseDetail', { id: e.id })} />
                   ))}
                 </View>
               ))}

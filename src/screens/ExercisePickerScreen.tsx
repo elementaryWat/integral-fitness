@@ -19,6 +19,7 @@ import { Card, Eyebrow, SheetHeader, T } from '../ui';
 import { usePlanEditor } from './planEditor';
 
 function Row({ e, onPress, tag }: { e: Exercise; onPress: () => void; tag?: string }) {
+  const nav = useNav();
   const color = TAG_COLORS[e.discipline];
   return (
     <Pressable onPress={onPress} accessibilityRole="button" style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, borderTopWidth: 1, borderTopColor: C.line, opacity: pressed ? 0.6 : 1 })}>
@@ -29,6 +30,9 @@ function Row({ e, onPress, tag }: { e: Exercise; onPress: () => void; tag?: stri
         </T>
       </View>
       {tag ? <T style={[mono(9), { color: C.lime }]}>{tag}</T> : <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />}
+      <Pressable onPress={() => nav.navigate('ExerciseDetail', { id: e.id })} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Ver detalle de ${e.name}`} style={{ paddingLeft: 6 }}>
+        <T style={[mono(15), { color: C.muted }]}>ⓘ</T>
+      </Pressable>
     </Pressable>
   );
 }

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Alert, Image, Pressable, View } from 'react-native';
 import { WeightChart } from '../components/charts';
 import { Screen } from '../components/Screen';
@@ -48,6 +49,37 @@ function WeightCard() {
         <T style={[mono(10, 500, 1.4), { color: C.dim, flex: 1 }]}>PUNTOS: PESAJE DIARIO · LÍNEA: MEDIA 7 D · 28 DÍAS</T>
         <LinkButton label="+ PESAJE" onPress={() => nav.navigate('BodyEntry')} />
       </Row>
+    </Card>
+  );
+}
+
+/** Every weigh-in, newest first: tap one to correct or delete it. */
+function WeighInsCard() {
+  const nav = useNav();
+  const weighIns = useStore((s) => s.weighIns);
+  const start = useStore((s) => s.profile?.createdAt);
+  const [all, setAll] = useState(false);
+  const list = [...weighIns].sort((a, b) => (a.date < b.date ? 1 : -1));
+  if (!list.length) return null;
+  const shown = all ? list : list.slice(0, 5);
+  return (
+    <Card gap={0}>
+      <Row style={{ paddingBottom: 6 }}>
+        <Eyebrow>PESAJES · TOCA PARA CORREGIR O BORRAR</Eyebrow>
+        <T style={[mono(10, 500), { color: C.dim }]}>{list.length}</T>
+      </Row>
+      {shown.map((w, i) => (
+        <Pressable key={w.date} onPress={() => nav.navigate('BodyEntry', { date: w.date })} accessibilityRole="button" style={({ pressed }) => ({ paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderTopColor: C.line, opacity: pressed ? 0.7 : 1 })}>
+          <Row>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <T style={[cond(17), { textTransform: 'uppercase' }]}>{shortDay(w.date)}</T>
+              {w.date === start ? <Chip label="INICIAL" color={C.lime} border={C.lime} /> : null}
+            </View>
+            <T style={cond(20)}>{fmt(w.kg, 1)} KG ›</T>
+          </Row>
+        </Pressable>
+      ))}
+      {list.length > 5 ? <LinkButton label={all ? 'VER MENOS' : `VER LOS ${list.length}`} color={C.muted} onPress={() => setAll((v) => !v)} /> : null}
     </Card>
   );
 }
@@ -166,10 +198,12 @@ export function CuerpoScreen() {
     <Screen>
       <ScreenHeader eyebrow="COMPOSICIÓN CORPORAL" title="Peso y medidas" />
       <WeightCard />
-      <View style={{ flexDirection: 'row', gap: 8 }}>
+      <WeighInsCard />
+      <Pressable onPress={() => nav.navigate('BodyEntry')} accessibilityRole="button" accessibilityHint="Registrar o corregir grasa y masa muscular" style={{ flexDirection: 'row', gap: 8 }}>
         <StatTile label="GRASA CORPORAL" value={fat.value !== undefined ? `${fmt(fat.value, 1)}%` : '—'} sub={fat.delta !== undefined ? `${fmtSigned(fat.delta, 1)} · 4 SEM` : 'SIN DATOS'} subColor={fat.delta !== undefined && fat.delta <= 0 ? C.lime : C.muted} size={40} />
         <StatTile label="MASA MUSC. ESQ." value={smm.value !== undefined ? `${fmt(smm.value, 1)} KG` : '—'} sub={smm.delta !== undefined ? `${fmtSigned(smm.delta, 1)} · 4 SEM` : 'SIN DATOS'} subColor={smm.delta !== undefined && smm.delta >= 0 ? C.lime : C.muted} size={40} />
-      </View>
+      </Pressable>
+      <T style={[mono(10, 500), { color: C.dim, marginTop: -4, paddingHorizontal: 2 }]}>TOCA GRASA O MASA MUSCULAR PARA EDITARLAS · ‹ › EN MEDIDAS PARA OTROS DÍAS</T>
       <PerimetersCard />
       <PrimaryButton label="Registrar medidas" onPress={() => nav.navigate('BodyEntry')} height={46} />
       <Gallery />

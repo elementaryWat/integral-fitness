@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { AiRequestError, scanFood, type Macros100, type ScanItem, type ScanKind } from '../ai/api';
+import { AiRequestError, foodFromText, scanFood, type Macros100, type ScanItem, type ScanKind } from '../ai/api';
 import { macrosFor } from '../ai/logic';
+import { MacroSummary, MealPicker, PortionPicker } from '../components/Food';
 import { Screen } from '../components/Screen';
 import { fmt } from '../data';
-import { today } from '../domain/dates';
+import { dayName, today } from '../domain/dates';
+import { addLabel, DayNotice } from './FoodAddScreen';
+import { mealForHour, type Meal } from '../domain/meals';
 import type { RootStackParamList } from '../navigation';
 import { pickImageForAi } from '../photos';
 import { useStore } from '../store';
 import { C, body, cond, mono } from '../theme';
-import { Card, Eyebrow, Field, GhostButton, PrimaryButton, SheetHeader, T, num } from '../ui';
+import { Card, Eyebrow, Field, GhostButton, LinkButton, PrimaryButton, Row, SheetHeader, T, num } from '../ui';
 
 const KIND_TITLE: Record<ScanKind, string> = {
   plato: 'Escanear plato',
@@ -27,20 +30,29 @@ interface DraftItem {
   f: string;
   per100: Macros100 | null;
   confidence: ScanItem['confidence'];
+  /** Portion the scan detected, for the ½ · 1 · 1½ · 2 presets. */
+  base: number;
+  editing: boolean;
 }
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
-const toDraft = (it: ScanItem): DraftItem => ({
-  name: it.name,
-  grams: String(it.grams),
-  kcal: String(it.kcal),
-  p: String(it.p),
-  c: String(it.c),
-  f: String(it.f),
-  per100: it.per100,
-  confidence: it.confidence,
-});
+const toDraft = (it: ScanItem): DraftItem => {
+  const d: DraftItem = {
+    name: it.name,
+    grams: String(it.grams),
+    kcal: String(it.kcal),
+    p: String(it.p),
+    c: String(it.c),
+    f: String(it.f),
+    per100: it.per100,
+    confidence: it.confidence,
+    base: it.grams,
+    editing: false,
+  };
+  // Without per-100 g values the portion could not be rescaled; derive them from what was detected.
+  return { ...d, per100: per100FromPortion(d) };
+};
 
 /** Per-100 g values from the portion the user is looking at, when the scan had none. */
 function per100FromPortion(it: DraftItem): Macros100 | null {
@@ -55,35 +67,41 @@ const CONFIDENCE = { alta: C.lime, media: C.amber, baja: C.coral } as const;
 
 export function FoodScanScreen({ route, navigation }: NativeStackScreenProps<RootStackParamList, 'FoodScan'>) {
   const kind = route.params.kind;
+  const written = route.params.text?.trim();
+  const date = route.params.date ?? today();
+  const when = dayName(date, today());
   const addFood = useStore((s) => s.addFood);
   const addPantry = useStore((s) => s.addPantry);
   const [uri, setUri] = useState<string>();
   const [dataUrl, setDataUrl] = useState<string>();
-  const [phase, setPhase] = useState<'picking' | 'scanning' | 'ready' | 'error'>('picking');
+  const [phase, setPhase] = useState<'picking' | 'scanning' | 'ready' | 'error'>(written ? 'scanning' : 'picking');
   const [error, setError] = useState('');
-  const [title, setTitle] = useState(KIND_TITLE[kind]);
+  const [title, setTitle] = useState(written ? 'Comida escrita' : KIND_TITLE[kind]);
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<DraftItem[]>([]);
   const [checked, setChecked] = useState<boolean[]>([]);
   const [saving, setSaving] = useState(false);
+  const [meal, setMeal] = useState<Meal>(() => route.params.meal ?? mealForHour(new Date().getHours()));
   const started = useRef(false);
   const savingRef = useRef(false);
 
+  /** Image scan, or a written description when `text` is given (same editable result). */
   const runScan = useCallback(async (image: string) => {
     setPhase('scanning');
     setError('');
     try {
-      const scan = await scanFood(useStore.getState().settings.watch, image, kind);
+      const link = useStore.getState().settings.watch;
+      const scan = written ? await foodFromText(link, written) : await scanFood(link, image, kind);
       setItems(scan.items.map(toDraft));
       setChecked(scan.items.map(() => true));
       setTitle(scan.title.trim() || KIND_TITLE[kind]);
       setNotes(scan.notes.trim());
       setPhase('ready');
     } catch (e) {
-      setError(e instanceof AiRequestError ? e.message : 'No se pudo analizar la imagen.');
+      setError(e instanceof AiRequestError ? e.message : written ? 'No se pudo completar con IA.' : 'No se pudo analizar la imagen.');
       setPhase('error');
     }
-  }, [kind]);
+  }, [kind, written]);
 
   const runScanRef = useRef(runScan);
   runScanRef.current = runScan;
@@ -92,6 +110,10 @@ export function FoodScanScreen({ route, navigation }: NativeStackScreenProps<Roo
     if (started.current) return;
     started.current = true;
     let live = true;
+    if (written) {
+      runScanRef.current('');
+      return;
+    }
     (async () => {
       const img = await pickImageForAi(KIND_TITLE[kind]);
       if (!live) return;
@@ -104,7 +126,7 @@ export function FoodScanScreen({ route, navigation }: NativeStackScreenProps<Roo
       await runScanRef.current(img.dataUrl);
     })();
     return () => { live = false; };
-  }, [kind, navigation]);
+  }, [kind, navigation, written]);
 
   const changeGrams = (i: number, text: string) => {
     setItems((list) => list.map((it, j) => {
@@ -142,7 +164,7 @@ export function FoodScanScreen({ route, navigation }: NativeStackScreenProps<Roo
     if (!foods.length || savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
-    for (const f of foods) addFood({ date: today(), ...f });
+    for (const f of foods) addFood({ date, meal, ...f });
     navigation.goBack();
   };
 
@@ -156,22 +178,23 @@ export function FoodScanScreen({ route, navigation }: NativeStackScreenProps<Roo
 
   return (
     <Screen sheet>
-      <SheetHeader eyebrow={`NUTRICIÓN · ${kind.toUpperCase()}`} title={title} onClose={() => navigation.goBack()} />
+      <SheetHeader eyebrow={`NUTRICIÓN · ${written ? 'TEXTO CON IA' : kind.toUpperCase()}`} title={title} onClose={() => navigation.goBack()} />
       {uri ? (
         <Image source={{ uri }} style={{ height: 180, borderRadius: 14, backgroundColor: C.chip }} resizeMode="cover" accessibilityLabel="Foto escaneada" />
       ) : null}
+      {written ? <T style={[body(13, 400, 1.4), { color: C.muted, marginTop: -6 }]}>«{written}»</T> : null}
       {phase === 'picking' || phase === 'scanning' ? (
         <Card>
           <T style={[cond(22), { textTransform: 'uppercase' }]}>{phase === 'picking' ? 'Elige una foto' : 'Analizando…'}</T>
           <T style={[body(13, 400, 1.4), { color: C.muted }]}>
-            {phase === 'picking' ? 'Cámara o carrete. Puedes cancelar y volver.' : 'Leyendo alimentos y macros. Puede tardar un momento.'}
+            {phase === 'picking' ? 'Cámara o carrete. Puedes cancelar y volver.' : written ? 'Calculando alimentos y macros de lo que escribiste.' : 'Leyendo alimentos y macros. Puede tardar un momento.'}
           </T>
         </Card>
       ) : null}
       {phase === 'error' ? (
         <Card>
           <T style={[body(14, 500, 1.4), { color: C.coral }]}>{error}</T>
-          <PrimaryButton label="Reintentar" onPress={() => dataUrl && runScan(dataUrl)} disabled={!dataUrl} />
+          <PrimaryButton label="Reintentar" onPress={() => (written ? runScan('') : dataUrl && runScan(dataUrl))} disabled={!written && !dataUrl} />
         </Card>
       ) : null}
       {phase === 'ready' && (
@@ -195,18 +218,28 @@ export function FoodScanScreen({ route, navigation }: NativeStackScreenProps<Roo
                 </Pressable>
               ) : null}
               <Field label="ALIMENTO" value={it.name} onChange={(v) => changeField(i, 'name', v)} keyboard="default" />
-              <Field label="GRAMOS" value={it.grams} onChange={(v) => changeGrams(i, v)} suffix="G" />
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                <Field flex label="PROT." value={it.p} onChange={(v) => changeField(i, 'p', v)} suffix="G" />
-                <Field flex label="CARB." value={it.c} onChange={(v) => changeField(i, 'c', v)} suffix="G" />
-                <Field flex label="GRASA" value={it.f} onChange={(v) => changeField(i, 'f', v)} suffix="G" />
-              </View>
-              <Field label="KCAL" value={it.kcal} onChange={(v) => changeField(i, 'kcal', v)} />
-              <Eyebrow color={CONFIDENCE[it.confidence]}>CONFIANZA {it.confidence.toUpperCase()}</Eyebrow>
-              {it.per100 ? <T style={[mono(10, 500), { color: C.dim }]}>POR 100 G: {fmt(it.per100.kcal)} KCAL · P{fmt(it.per100.p, 1)} C{fmt(it.per100.c, 1)} G{fmt(it.per100.f, 1)}. AL CAMBIAR LOS GRAMOS SE RECALCULA.</T> : null}
+              <PortionPicker grams={it.grams} base={it.base} onChange={(v) => changeGrams(i, v)} />
+              <MacroSummary kcal={num(it.kcal) ?? 0} p={num(it.p) ?? 0} c={num(it.c) ?? 0} f={num(it.f) ?? 0} />
+              {it.editing ? (
+                <>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <Field flex label="PROT." value={it.p} onChange={(v) => changeField(i, 'p', v)} suffix="G" />
+                    <Field flex label="CARB." value={it.c} onChange={(v) => changeField(i, 'c', v)} suffix="G" />
+                    <Field flex label="GRASA" value={it.f} onChange={(v) => changeField(i, 'f', v)} suffix="G" />
+                  </View>
+                  <Field label="KCAL" value={it.kcal} onChange={(v) => changeField(i, 'kcal', v)} />
+                </>
+              ) : null}
+              <Row>
+                <Eyebrow color={CONFIDENCE[it.confidence]}>CONFIANZA {it.confidence.toUpperCase()}</Eyebrow>
+                <LinkButton label={it.editing ? 'LISTO' : 'CORREGIR MACROS'} color={C.soft} onPress={() => setItems((list) => list.map((x, j) => (j === i ? { ...x, editing: !x.editing } : x)))} />
+              </Row>
+              {it.per100 ? <T style={[mono(10, 500), { color: C.dim }]}>POR 100 G: {fmt(it.per100.kcal)} KCAL · P{fmt(it.per100.p, 1)} C{fmt(it.per100.c, 1)} G{fmt(it.per100.f, 1)}</T> : null}
             </Card>
           ))}
-          {kind !== 'ticket' ? <PrimaryButton label="Añadir a hoy" onPress={addToday} disabled={!foods.length || saving} /> : null}
+          {kind !== 'ticket' && foods.length > 0 ? <MealPicker value={meal} onChange={setMeal} /> : null}
+          {kind !== 'ticket' && when !== 'HOY' ? <DayNotice when={when} /> : null}
+          {kind !== 'ticket' ? <PrimaryButton label={addLabel(when)} onPress={addToday} disabled={!foods.length || saving} /> : null}
           {kind === 'etiqueta' ? <GhostButton label="GUARDAR EN DESPENSA" onPress={savePantry} /> : null}
           {kind === 'ticket' ? <PrimaryButton label="Guardar en despensa" onPress={savePantry} disabled={!pantry.length || saving} /> : null}
         </>

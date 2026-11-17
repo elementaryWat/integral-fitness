@@ -34,6 +34,11 @@ export const shortDay = (s: ISODate) => {
   const d = parseISO(s);
   return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
 };
+/** "HOY", "AYER", "MAÑANA" or "MIÉ 12 NOV", relative to `ref`. */
+export const dayName = (s: ISODate, ref: ISODate) => {
+  const n = daysBetween(ref, s);
+  return n === 0 ? 'HOY' : n === -1 ? 'AYER' : n === 1 ? 'MAÑANA' : longDay(s);
+};
 export const dayLetter = (s: ISODate) => DAY_LETTERS[weekday(s) - 1];
 
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);

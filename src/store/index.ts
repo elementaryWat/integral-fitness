@@ -4,11 +4,12 @@ import { createJSONStorage, persist, type StateStorage } from 'zustand/middlewar
 import { SEED_EXERCISES, type MuscleGroup } from '../domain/catalog';
 import { today, uid } from '../domain/dates';
 import type {
-  AiCoachReview, BodyComp, CoachState, PantryItem, DailyActivity, DayType, Exercise, FoodEntry, ISODate, Perimeters, PlannedBlock,
+  AiCoachReview, BodyComp, PhysiqueReview, SessionFeel, CoachState, PantryItem, DailyActivity, DayType, Exercise, FoodEntry, ISODate, Perimeters, PlannedBlock,
   Profile, ProgressPhoto, Proposal, Session, SetLog, WeighIn,
 } from '../domain/types';
 import type { Recalibration } from '../engines/energy';
 import { buildQueue, type Minutes } from '../engines/generator';
+import { rebuildSession } from '../engines/liveSession';
 import type { Routine } from '../engines/planEdit';
 import { sanitizeSettings, withSeedExercises } from './seedMerge';
 import { newPairCode, type WatchLink } from '../watch/relay';
@@ -77,8 +78,14 @@ export interface AppState {
   upsertSet: (log: SetLog) => void;
   finishSession: () => void;
   discardSession: () => void;
+  /** Change, add or remove exercises with the session already started (keeps logged sets). */
+  editActiveSession: (blocks: PlannedBlock[]) => void;
 
   addWeighIn: (w: WeighIn) => void;
+  /** Deletes the weigh-in of a day (the initial one included). */
+  removeWeighIn: (date: ISODate) => void;
+  /** How you felt at the end of a saved session. */
+  rateSession: (id: string, feel: SessionFeel) => void;
   addBodyComp: (b: BodyComp) => void;
   addPerimeters: (p: Perimeters) => void;
   addPhoto: (p: ProgressPhoto) => void;
@@ -86,10 +93,12 @@ export interface AppState {
 
   addFood: (f: Omit<FoodEntry, 'id'>) => void;
   removeFood: (id: string) => void;
+  updateFood: (id: string, patch: Partial<Omit<FoodEntry, 'id'>>) => void;
   /** Adds products to the pantry, replacing any with the same name. */
   addPantry: (items: Omit<PantryItem, 'id' | 'addedAt'>[]) => void;
   removePantry: (id: string) => void;
   setAiReview: (weekOf: ISODate, review: AiCoachReview) => void;
+  setPhysique: (date: ISODate, review: PhysiqueReview) => void;
   setPlanDraft: (d: PlanDraft | undefined) => void;
   saveRoutine: (r: Routine) => void;
   deleteRoutine: (id: string) => void;
@@ -156,12 +165,22 @@ export const useStore = create<AppState>()(
       finishSession: () => set((s) => {
         const a = s.activeSession;
         if (!a) return {};
-        if (!a.sets.length) return { activeSession: undefined };
-        return { activeSession: undefined, sessions: [...s.sessions, { ...a, endedAt: a.sets.at(-1)!.endedAt }] };
+        // Skipped sets only marked queue slots during the session: history keeps the real work.
+        const sets = a.sets.filter((l) => !l.skipped);
+        if (!sets.length) return { activeSession: undefined };
+        const endedAt = Math.max(...sets.map((l) => l.endedAt));
+        return { activeSession: undefined, sessions: [...s.sessions, { ...a, sets, endedAt }] };
       }),
       discardSession: () => set({ activeSession: undefined }),
+      editActiveSession: (blocks) => set((s) => (s.activeSession ? { activeSession: rebuildSession(s.activeSession, blocks, uid()) } : {})),
 
-      addWeighIn: (w) => set((s) => ({ weighIns: byDate(s.weighIns, w) })),
+      addWeighIn: (w) => set((s) => ({
+        weighIns: byDate(s.weighIns, w),
+        // The weigh-in on the profile's start date is the starting weight: keep both in sync.
+        ...(s.profile && s.profile.createdAt === w.date ? { profile: { ...s.profile, startWeightKg: w.kg } } : {}),
+      })),
+      rateSession: (id, feel) => set((s) => ({ sessions: s.sessions.map((x) => (x.id === id ? { ...x, feel } : x)) })),
+      removeWeighIn: (date) => set((s) => ({ weighIns: s.weighIns.filter((w) => w.date !== date) })),
       addBodyComp: (b) => set((s) => ({ bodyComps: byDate(s.bodyComps, b) })),
       addPerimeters: (p) => set((s) => ({ perimeters: byDate(s.perimeters, p) })),
       addPhoto: (p) => set((s) => ({ photos: [...s.photos.filter((x) => !(x.date === p.date && x.view === p.view)), p] })),
@@ -169,6 +188,7 @@ export const useStore = create<AppState>()(
 
       addFood: (f) => set((s) => ({ foods: [...s.foods, { ...f, id: uid() }] })),
       removeFood: (id) => set((s) => ({ foods: s.foods.filter((f) => f.id !== id) })),
+      updateFood: (id, patch) => set((s) => ({ foods: s.foods.map((f) => (f.id === id ? { ...f, ...patch } : f)) })),
       addPantry: (items) => set((s) => {
         const names = new Set(items.map((i) => i.name.trim().toLowerCase()));
         const added = items.map((i) => ({ ...i, name: i.name.trim(), id: uid(), addedAt: today() }));
@@ -178,6 +198,7 @@ export const useStore = create<AppState>()(
       setPlanDraft: (planDraft) => set({ planDraft }),
       saveRoutine: (r) => set((s) => ({ routines: [r, ...s.routines.filter((x) => x.id !== r.id && x.name.toLowerCase() !== r.name.toLowerCase())] })),
       deleteRoutine: (id) => set((s) => ({ routines: s.routines.filter((r) => r.id !== id) })),
+      setPhysique: (date, review) => set((s) => ({ coach: { ...s.coach, physique: { ...s.coach.physique, [date]: review } } })),
       setAiReview: (weekOf, review) => set((s) => ({ coach: { ...s.coach, aiReview: { ...s.coach.aiReview, [weekOf]: review } } })),
       setActivity: (a) => set((s) => ({ activity: byDate(s.activity, { ...s.activity.find((x) => x.date === a.date), ...a }) })),
       setDayType: (date, t) => set((s) => {

@@ -15,7 +15,7 @@ import { Ring } from './charts';
  * It drives the same live session as the phone and writes real set logs.
  */
 
-export function StepperRow({ value, unit, onMinus, onPlus, disabled }: { value: string | number; unit: string; onMinus: () => void; onPlus: () => void; disabled?: boolean }) {
+export function StepperRow({ value, unit, onMinus, onPlus, disabled, onValuePress }: { value: string | number; unit: string; onMinus: () => void; onPlus: () => void; disabled?: boolean; onValuePress?: () => void }) {
   const btn = (label: string, onPress: () => void, a11y: string) => (
     <Pressable onPress={onPress} disabled={disabled} accessibilityLabel={a11y} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 12, backgroundColor: pressed ? '#2c2e2c' : '#1f211f', alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.35 : 1 })}>
       <T style={body(24, 500)}>{label}</T>
@@ -24,10 +24,10 @@ export function StepperRow({ value, unit, onMinus, onPlus, disabled }: { value: 
   return (
     <Row style={{ backgroundColor: C.card, borderRadius: 16, padding: 4 }}>
       {btn('−', onMinus, 'Bajar ' + unit)}
-      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, flexShrink: 1 }}>
-        <T style={cond(32, 700)} lines={1}>{value}</T>
+      <Pressable onPress={onValuePress} disabled={!onValuePress || disabled} accessibilityRole={onValuePress ? 'button' : undefined} accessibilityHint={onValuePress ? 'Escribir el valor exacto' : undefined} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, flexShrink: 1, borderBottomWidth: onValuePress && !disabled ? 1 : 0, borderBottomColor: C.border, borderStyle: 'dashed' }}>
+        <T style={cond(onValuePress ? 28 : 32, 700)} lines={1}>{value}</T>
         <T style={[mono(11), { color: C.muted }]}>{unit}</T>
-      </View>
+      </Pressable>
       {btn('+', onPlus, 'Subir ' + unit)}
     </Row>
   );
@@ -70,7 +70,7 @@ function SetScreen() {
 }
 
 function RestScreen() {
-  const { live, advance, nextText } = useLive();
+  const { live, advance, extend, nextText } = useLive();
   const thr = useStore((s) => s.settings.hrThreshold);
   const remain = Math.max(0, live.restTarget - live.restT);
   return (
@@ -88,9 +88,14 @@ function RestScreen() {
       <T style={[body(12, 500, 1.25), { color: C.muted, textAlign: 'center', maxWidth: 220 }]} lines={2}>
         Sig. <T style={{ color: C.text }}>{nextText}</T>
       </T>
-      <Pressable onPress={advance} style={{ marginTop: 'auto', height: 30, paddingHorizontal: 16, borderRadius: 15, borderWidth: 1, borderColor: '#2c2e2c', justifyContent: 'center' }}>
-        <T style={mono(11)}>SALTAR</T>
-      </Pressable>
+      <View style={{ marginTop: 'auto', flexDirection: 'row', gap: 8 }}>
+        <Pressable onPress={extend} style={{ height: 30, paddingHorizontal: 14, borderRadius: 15, borderWidth: 1, borderColor: '#2c2e2c', justifyContent: 'center' }}>
+          <T style={mono(11)}>+30 S</T>
+        </Pressable>
+        <Pressable onPress={advance} style={{ height: 30, paddingHorizontal: 14, borderRadius: 15, borderWidth: 1, borderColor: '#2c2e2c', justifyContent: 'center' }}>
+          <T style={mono(11)}>EMPEZAR</T>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -99,7 +104,7 @@ function AlertScreen() {
   const { live, advance, nextText } = useLive();
   return (
     <Pressable onPress={advance} accessibilityLabel="Empezar la siguiente serie" style={{ flex: 1, backgroundColor: C.lime, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 22 }}>
-      <T style={[mono(10), { letterSpacing: em(10, 0.14), color: C.bg }]}>VIBRACIÓN · 3 PULSOS</T>
+      <T style={[mono(10), { letterSpacing: em(10, 0.14), color: C.bg }]}>LISTO · LA SERIE EMPIEZA AL TOCAR</T>
       <T style={[cond(60, 900, 0.9), { color: C.bg, textTransform: 'uppercase', textAlign: 'center' }]}>{'A por\nla serie'}</T>
       <T style={[mono(12), { color: C.bg }]}>{live.alertReason}</T>
       <T style={[body(13, 600, 1.25), { color: '#22300a', textAlign: 'center' }]} lines={2}>{nextText}</T>
@@ -142,7 +147,7 @@ function IdleScreen() {
   const minutes = useStore((s) => s.settings.plannedMinutes);
   return (
     <View style={{ flex: 1, paddingTop: 34, paddingHorizontal: 24, paddingBottom: 24, gap: 10, alignItems: 'center', justifyContent: 'center' }}>
-      <T style={[mono(11), { letterSpacing: em(11, 0.12), color: C.muted }]}>RECOMP</T>
+      <T style={[mono(11), { letterSpacing: em(11, 0.12), color: C.muted }]}>WREP</T>
       <T style={[cond(34, 800, 1), { textTransform: 'uppercase', textAlign: 'center' }]}>{'Sin sesión\nactiva'}</T>
       <T style={[body(12, 500, 1.3), { color: C.muted, textAlign: 'center' }]}>
         {plan.length ? `Hoy: ${minutes} min · ${plan.length} bloques. Empieza desde Entreno en el móvil.` : 'Configura tus ejercicios en el móvil.'}

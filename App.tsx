@@ -1,5 +1,5 @@
 /**
- * Recomp — phone app paired with an Amazfit Bip 6 (Zepp OS mini-app, simulated in-app for now).
+ * Wrep — phone app paired with an Amazfit Bip 6 (Zepp OS mini-app, simulated in-app for now).
  */
 import { useEffect } from 'react';
 import { Pressable, StatusBar, View } from 'react-native';
@@ -18,6 +18,9 @@ import { CuerpoScreen } from './src/screens/CuerpoScreen';
 import { EntrenoScreen } from './src/screens/EntrenoScreen';
 import { ExerciseEditScreen } from './src/screens/ExerciseEditScreen';
 import { ExerciseLibraryScreen } from './src/screens/ExerciseLibraryScreen';
+import { ExerciseDetailScreen } from './src/screens/ExerciseDetailScreen';
+import { SessionSummaryScreen } from './src/screens/SessionSummaryScreen';
+import { RecoveryDetailScreen } from './src/screens/RecoveryDetailScreen';
 import { FoodAddScreen } from './src/screens/FoodAddScreen';
 import { FoodScanScreen } from './src/screens/FoodScanScreen';
 import { HoyScreen } from './src/screens/HoyScreen';
@@ -116,6 +119,9 @@ function Root() {
               <Stack.Group screenOptions={{ presentation: 'modal', contentStyle: { backgroundColor: C.bg } }}>
                 <Stack.Screen name="ExerciseLibrary" component={ExerciseLibraryScreen} />
                 <Stack.Screen name="ExerciseEdit" component={ExerciseEditScreen} />
+                <Stack.Screen name="ExerciseDetail" component={ExerciseDetailScreen} />
+                <Stack.Screen name="SessionSummary" component={SessionSummaryScreen} />
+                <Stack.Screen name="RecoveryDetail" component={RecoveryDetailScreen} />
                 <Stack.Screen name="FoodAdd" component={FoodAddScreen} />
                 <Stack.Screen name="FoodScan" component={FoodScanScreen} />
                 <Stack.Screen name="BodyEntry" component={BodyEntryScreen} />

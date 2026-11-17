@@ -28,3 +28,31 @@ export function nightlyHrv(samples: HrvSample[]): Record<ISODate, number> {
   for (const [d, xs] of night) out[d] = avg(xs);
   return out;
 }
+
+/** HealthKit sleep analysis values (HKCategoryValueSleepAnalysis). */
+export const SLEEP_VALUE = { inBed: 0, asleep: 1, awake: 2, core: 3, deep: 4, rem: 5 } as const;
+export interface SleepSample { value: number; start: Date; end: Date }
+
+/**
+ * Sleep per night from Apple Health stages, attributed to the morning it ends (same rule as HRV:
+ * a night that ends before 18:00 belongs to that day). Overlapping sources are not de-duplicated,
+ * so only one writer (the Zepp app) is expected.
+ */
+export function nightlySleep(samples: SleepSample[]): Record<ISODate, { sleepMin: number; deepSleepMin?: number; remMin?: number; lightMin?: number; awakeMin?: number }> {
+  const out: Record<ISODate, { sleepMin: number; deepSleepMin?: number; remMin?: number; lightMin?: number; awakeMin?: number }> = {};
+  for (const s of samples) {
+    const min = Math.round((s.end.getTime() - s.start.getTime()) / 60000);
+    if (!(min > 0) || s.value === SLEEP_VALUE.inBed) continue;
+    const date = s.end.getHours() >= 18 ? addDays(localISO(s.end), 1) : localISO(s.end);
+    const n = (out[date] ??= { sleepMin: 0 });
+    const add = (k: 'deepSleepMin' | 'remMin' | 'lightMin' | 'awakeMin') => (n[k] = (n[k] ?? 0) + min);
+    if (s.value === SLEEP_VALUE.awake) add('awakeMin');
+    else {
+      n.sleepMin += min;
+      if (s.value === SLEEP_VALUE.deep) add('deepSleepMin');
+      else if (s.value === SLEEP_VALUE.rem) add('remMin');
+      else if (s.value === SLEEP_VALUE.core) add('lightMin');
+    }
+  }
+  return out;
+}

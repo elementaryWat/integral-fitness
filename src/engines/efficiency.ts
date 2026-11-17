@@ -21,7 +21,7 @@ export interface SessionMetrics {
  * `liveRestSec` adds the ongoing rest when the session is in progress.
  */
 export function sessionMetrics(s: Pick<Session, 'sets'>, ex: ExMap, bw: number, liveRestSec = 0): SessionMetrics {
-  const sets = [...s.sets].sort((a, b) => a.startedAt - b.startedAt);
+  const sets = s.sets.filter((l) => !l.skipped).sort((a, b) => a.startedAt - b.startedAt);
   let tonnage = 0, activeSec = 0, restSec = liveRestSec, hrrSum = 0, hrrN = 0;
   sets.forEach((l, i) => {
     const e = ex[l.exerciseId];

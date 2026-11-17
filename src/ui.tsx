@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Pressable, Text, TextInput, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
+import { ActionSheetIOS, Alert, Platform, Pressable, Text, TextInput, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 import { Hatch } from './components/charts';
 import { C, body, cond, em, mono } from './theme';
 
@@ -246,3 +246,17 @@ export const num = (s: string) => {
   const v = parseFloat(s.replace(',', '.'));
   return Number.isFinite(v) ? v : undefined;
 };
+
+/** Native action sheet on iOS, alert with buttons elsewhere. */
+export function actions(title: string, options: { label: string; onPress: () => void; destructive?: boolean }[]) {
+  if (Platform.OS === 'ios') {
+    const labels = [...options.map((o) => o.label), 'Cancelar'];
+    const destructiveButtonIndex = options.findIndex((o) => o.destructive);
+    ActionSheetIOS.showActionSheetWithOptions(
+      { title, options: labels, cancelButtonIndex: labels.length - 1, destructiveButtonIndex: destructiveButtonIndex >= 0 ? destructiveButtonIndex : undefined, userInterfaceStyle: 'dark' },
+      (i) => options[i]?.onPress(),
+    );
+  } else {
+    Alert.alert(title, undefined, [...options.map((o) => ({ text: o.label, onPress: o.onPress, style: o.destructive ? ('destructive' as const) : ('default' as const) })), { text: 'Cancelar', style: 'cancel' }]);
+  }
+}

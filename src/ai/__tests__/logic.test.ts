@@ -1,5 +1,5 @@
 import type { ExerciseDraftRaw } from '../api';
-import { exerciseFromDraft, macrosFor } from '../logic';
+import { exerciseFromDraft, macrosFor, techniqueFromDraft, physiquePhotos } from '../logic';
 
 const per100 = { kcal: 100, p: 10, c: 20, f: 5 };
 
@@ -116,5 +116,30 @@ describe('exerciseFromDraft', () => {
   it('cuts a long name to 60 characters', () => {
     const e = exerciseFromDraft(draft({ name: 'A'.repeat(80) }));
     expect(e.name).toHaveLength(60);
+  });
+});
+
+describe('techniqueFromDraft', () => {
+  it('keeps trimmed cues and known muscles', () => {
+    const t = techniqueFromDraft({ setup: [' a ', ''], steps: ['b', 'c'], mistakes: ['d → e'], feel: ['quad', 'nope'], tip: ' ojo ' });
+    expect(t).toEqual({ setup: ['a'], steps: ['b', 'c'], mistakes: ['d → e'], feel: ['quad'], tip: 'ojo' });
+  });
+
+  it('returns undefined without steps or data, and travels with the exercise', () => {
+    expect(techniqueFromDraft(null)).toBeUndefined();
+    expect(techniqueFromDraft({ setup: ['a'], steps: [], mistakes: [], feel: [], tip: null })).toBeUndefined();
+    expect(exerciseFromDraft(draft()).technique).toBeUndefined();
+    expect(exerciseFromDraft(draft({ technique: { setup: [], steps: ['x', 'y'], mistakes: [], feel: ['glut'], tip: null } })).technique?.feel).toEqual(['glut']);
+  });
+});
+
+describe('physiquePhotos', () => {
+  it('takes the newest set in front/side/back order and the oldest front to compare', () => {
+    const p = (date: string, view: 'frente' | 'perfil' | 'espalda') => ({ id: `${date}-${view}`, date, view });
+    const r = physiquePhotos([p('2026-11-01', 'frente'), p('2026-11-14', 'espalda'), p('2026-11-14', 'frente'), p('2026-11-14', 'perfil'), p('2026-11-07', 'frente')]);
+    expect(r.date).toBe('2026-11-14');
+    expect(r.latest.map((x) => x.view)).toEqual(['frente', 'perfil', 'espalda']);
+    expect(r.older?.date).toBe('2026-11-01');
+    expect(physiquePhotos([p('2026-11-14', 'frente')]).older).toBeUndefined();
   });
 });

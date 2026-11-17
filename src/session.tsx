@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import { uid } from './domain/dates';
 import type { Exercise, QueueItem, Session, SetLog } from './domain/types';
 import { SUPERSET_TRANSITION_SEC } from './engines/generator';
+import { EXTEND_SEC, firstPending, hrRuleFrom, nextPendingAfter, pendingOfBlock, skippedSet } from './engines/liveSession';
 import { useStore } from './store';
 import { loadText, mmss, unitSuffix } from './data';
 
@@ -13,9 +14,10 @@ import { loadText, mmss, unitSuffix } from './data';
  * Watch modes:
  *  - idle:  no active session
  *  - set:   performing a set; HR climbs towards ~156 bpm
- *  - rest:  HR decays from the set peak; rest ends when HR reaches the threshold (≥ 20 s)
- *           or the rest target is met. Between superset partners: 30 s transition, no HR rule.
- *  - alert: wrist vibration, waiting for the tap that starts the next set
+ *  - rest:  HR decays from the set peak; rest ends when HR reaches the threshold (after
+ *           max(60 s, 60 % of the rest)) or the rest target is met. Between superset partners:
+ *           30 s transition, no HR rule. "+30 s" extends it.
+ *  - alert: "LISTO": wrist vibration, waiting for the tap that starts the next set (waiting counts as rest)
  *  - done:  every queued set logged
  */
 export type WatchMode = 'idle' | 'set' | 'rest' | 'alert' | 'done';
@@ -43,7 +45,9 @@ type Action =
   | { type: 'init'; session?: Session; resumeClock: number }
   | { type: 'tick'; thr: number; noise: number }
   | { type: 'registered'; peak: number; clock: number; restTarget: number; partner: boolean; last: boolean }
-  | { type: 'advance'; cur: SetInput }
+  | { type: 'advance'; qi: number; cur: SetInput }
+  | { type: 'extend' }
+  | { type: 'setLoad'; ex: Exercise; value: number }
   | { type: 'adjust'; ex: Exercise; field: 'load' | 'reps'; dir: 1 | -1 }
   | { type: 'rpe'; rpe: number };
 
@@ -62,7 +66,7 @@ function reducer(s: LiveState, a: Action): LiveState {
   switch (a.type) {
     case 'init': {
       if (!a.session) return { ...IDLE, hr: s.hr, alertCount: s.alertCount };
-      const qi = a.session.sets.length;
+      const qi = firstPending(a.session.queue, a.session.sets);
       const done = qi >= a.session.queue.length;
       return { ...IDLE, sessionId: a.session.id, qi, mode: done ? 'done' : 'set', cur: inputFor(a.session.queue[qi], a.session), hr: Math.max(s.hr, 96), clock: a.resumeClock, setStart: a.resumeClock, alertCount: s.alertCount };
     }
@@ -74,7 +78,7 @@ function reducer(s: LiveState, a: Action): LiveState {
       const hr = REST_HR + (s.peak - REST_HR) * Math.exp(-t / HR_DECAY) + a.noise * 0.7;
       const next = { ...s, clock, restT: t, hr };
       if (s.mode === 'rest') {
-        if (s.hrRule && t >= 20 && hr <= a.thr) return { ...next, mode: 'alert', alertReason: `FC EN UMBRAL · ${Math.round(hr)} LPM`, alertCount: s.alertCount + 1 };
+        if (s.hrRule && t >= hrRuleFrom(s.restTarget) && hr <= a.thr) return { ...next, mode: 'alert', alertReason: `FC EN UMBRAL · ${Math.round(hr)} LPM`, alertCount: s.alertCount + 1 };
         if (t >= s.restTarget) return { ...next, mode: 'alert', alertReason: `TIEMPO CUMPLIDO · ${mmss(t)}`, alertCount: s.alertCount + 1 };
       }
       return next;
@@ -83,7 +87,17 @@ function reducer(s: LiveState, a: Action): LiveState {
       if (a.last) return { ...s, mode: 'done', clock: a.clock, peak: a.peak, qi: s.qi + 1 };
       return { ...s, mode: 'rest', clock: a.clock, restT: 0, peak: a.peak, hr: a.peak, restTarget: a.partner ? SUPERSET_TRANSITION_SEC : a.restTarget, hrRule: !a.partner };
     case 'advance':
-      return { ...s, qi: s.qi + 1, mode: 'set', setStart: s.clock, restT: 0, cur: a.cur };
+      return { ...s, qi: a.qi, mode: 'set', setStart: s.clock, restT: 0, cur: a.cur };
+    case 'extend':
+      if (s.mode === 'rest') return { ...s, restTarget: s.restTarget + EXTEND_SEC, hrRule: false };
+      if (s.mode === 'alert') return { ...s, mode: 'rest', restTarget: s.restT + EXTEND_SEC, hrRule: false };
+      return s;
+    case 'setLoad': {
+      const e = a.ex;
+      if (!e.step || !Number.isFinite(a.value) || a.value < 0) return s;
+      const max = e.loadMode === 'palanca' ? (e.levers?.length ?? 1) - 1 : Infinity;
+      return { ...s, cur: { ...s.cur, load: Math.min(max, Math.round(a.value * 100) / 100) } };
+    }
     case 'adjust': {
       const e = a.ex;
       const cur = { ...s.cur };
@@ -107,6 +121,12 @@ interface LiveCtx {
   exercise?: Exercise;
   register: () => void;
   advance: () => void;
+  /** +30 s of rest (or back to resting once LISTO). */
+  extend: () => void;
+  /** Exact load typed by hand (66 instead of the 65 the step allows). */
+  setLoad: (value: number) => void;
+  /** Skip the current set, every pending set of its exercise, or the rest of its superset (block). */
+  skip: (what: 'set' | 'exercise' | 'block') => void;
   adjust: (field: 'load' | 'reps', dir: 1 | -1) => void;
   setRpe: (rpe: number) => void;
   /** "B1 Dominada lastrada · +20 kg × 6" */
@@ -141,8 +161,12 @@ export function LiveSessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const s = liveRef.current;
     if (!session || s.sessionId !== session.id) return;
-    const expected = s.mode === 'rest' || s.mode === 'alert' ? s.qi + 1 : s.qi;
-    if (session.sets.length !== expected) {
+    const fp = firstPending(session.queue, session.sets);
+    const logged = new Set(session.sets.map((l) => l.qi));
+    const resting = s.mode === 'rest' || s.mode === 'alert';
+    // Out of step when the current set was logged elsewhere (watch) or, while resting, the set just done is missing.
+    const stale = s.mode === 'set' ? logged.has(s.qi) : resting ? !logged.has(s.qi) : s.mode === 'done' && fp < session.queue.length;
+    if (stale) {
       const last = session.sets.at(-1);
       dispatch({ type: 'init', session, resumeClock: last ? Math.round((last.endedAt - session.startedAt) / 1000) : 0 });
     }
@@ -156,7 +180,8 @@ export function LiveSessionProvider({ children }: { children: ReactNode }) {
   }, [settings.simSpeed]);
 
   const current = session?.queue[live.qi];
-  const next = session?.queue[live.qi + 1];
+  const nextQi = session ? nextPendingAfter(session.queue, session.sets, live.qi) : 0;
+  const next = session && nextQi !== live.qi ? session.queue[nextQi] : undefined;
 
   const register = useCallback(() => {
     const s = liveRef.current;
@@ -174,16 +199,35 @@ export function LiveSessionProvider({ children }: { children: ReactNode }) {
       startedAt: sess.startedAt + s.setStart * 1000, endedAt: sess.startedAt + end * 1000, hrPeak: Math.round(peak), hrr60,
     };
     logSet(log);
-    const nq = sess.queue[s.qi + 1];
-    dispatch({ type: 'registered', peak, clock: end, restTarget: useStore.getState().settings.restSec, partner: !!nq && nq.block === q.block && nq.set === q.set, last: !nq });
+    const after = useStore.getState().activeSession!;
+    const nqi = nextPendingAfter(after.queue, after.sets, s.qi);
+    const nq = after.queue[nqi];
+    dispatch({ type: 'registered', peak, clock: end, restTarget: useStore.getState().settings.restSec, partner: !!nq && nqi === s.qi + 1 && nq.block === q.block && nq.set === q.set, last: !nq });
   }, [ex, logSet]);
 
   const advance = useCallback(() => {
     const s = liveRef.current;
     const sess = useStore.getState().activeSession;
     if (!sess || (s.mode !== 'rest' && s.mode !== 'alert')) return;
-    dispatch({ type: 'advance', cur: inputFor(sess.queue[s.qi + 1], sess) });
+    const qi = nextPendingAfter(sess.queue, sess.sets, s.qi);
+    if (qi >= sess.queue.length) return;
+    dispatch({ type: 'advance', qi, cur: inputFor(sess.queue[qi], sess) });
   }, []);
+
+  const skip = useCallback((what: 'set' | 'exercise' | 'block') => {
+    const s = liveRef.current;
+    const sess = useStore.getState().activeSession;
+    const q = sess?.queue[s.qi];
+    if (!sess || !q || s.mode !== 'set') return;
+    const logged = new Set(sess.sets.map((l) => l.qi));
+    const qis = what === 'set' ? [s.qi] : what === 'block' ? pendingOfBlock(sess.queue, sess.sets, s.qi) : sess.queue.map((x, i) => (x.exerciseId === q.exerciseId && !logged.has(i) ? i : -1)).filter((i) => i >= 0);
+    const at = sess.startedAt + s.clock * 1000;
+    for (const qi of qis) logSet(skippedSet(sess.id, qi, sess.queue[qi], at));
+    const after = useStore.getState().activeSession!;
+    const qi = nextPendingAfter(after.queue, after.sets, s.qi);
+    if (qi >= after.queue.length) dispatch({ type: 'init', session: after, resumeClock: s.clock });
+    else dispatch({ type: 'advance', qi, cur: inputFor(after.queue[qi], after) });
+  }, [logSet]);
 
   const exercise = current ? ex[current.exerciseId] : undefined;
   const value = useMemo<LiveCtx>(() => {
@@ -196,11 +240,13 @@ export function LiveSessionProvider({ children }: { children: ReactNode }) {
       nextText = `${target.block}${target.pos} ${e.name} · ${loadText(e, c.load)}${e.loadMode === 'peso' || e.loadMode === 'lastre' ? ' kg' : ''} × ${c.reps}${unitSuffix(e.unit)}`;
     }
     return {
-      live, session, current, next, exercise, register, advance, nextText,
+      live, session, current, next, exercise, register, advance, nextText, skip,
+      extend: () => dispatch({ type: 'extend' }),
+      setLoad: (v) => exercise && dispatch({ type: 'setLoad', ex: exercise, value: v }),
       adjust: (field, dir) => exercise && dispatch({ type: 'adjust', ex: exercise, field, dir }),
       setRpe: (rpe) => dispatch({ type: 'rpe', rpe }),
     };
-  }, [live, session, current, next, exercise, ex, register, advance]);
+  }, [live, session, current, next, exercise, ex, register, advance, skip]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

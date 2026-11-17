@@ -33,6 +33,8 @@ interface Draft {
   height: string;
   weight: string;
   fat: string;
+  /** Skeletal muscle mass (kg), optional */
+  smm?: string;
   goal?: Goal;
   pace: Pace;
   target: string;
@@ -52,7 +54,7 @@ const decimal = (v: number | undefined) => (v === undefined ? '' : String(+v.toF
 function stepValid(k: StepKey, d: Draft) {
   switch (k) {
     case 'tu': return !!d.sex && inRange(d.age, 14, 90) && inRange(d.height, 120, 230);
-    case 'medidas': return inRange(d.weight, 35, 250) && optionalInRange(d.fat, 3, 60);
+    case 'medidas': return inRange(d.weight, 35, 250) && optionalInRange(d.fat, 3, 60) && optionalInRange(d.smm ?? '', 10, 80);
     case 'objetivo': return !!d.goal && (d.goal === 'mantener' || optionalInRange(d.target, 35, 250));
     case 'entreno': return !!d.experience && d.days.length > 0;
     case 'actividad': return !!d.activity;
@@ -135,7 +137,7 @@ function IntroStep({ d, set, onDemo }: { d: Draft; set: (p: Partial<Draft>) => v
   ];
   return (
     <>
-      <StepTitle eyebrow="RECOMP · BIENVENIDA" title="Empecemos" sub="Seis pasos rápidos para ajustar el plan a tu cuerpo, tu objetivo y tu semana." />
+      <StepTitle eyebrow="WREP · BIENVENIDA" title="Empecemos" sub="Seis pasos rápidos para ajustar el plan a tu cuerpo, tu objetivo y tu semana." />
       <Card>
         <Field label="¿CÓMO TE LLAMAS? (OPC.)" value={d.name} onChange={(name) => set({ name })} keyboard="default" placeholder="Tu nombre" />
       </Card>
@@ -184,18 +186,20 @@ function YouStep({ d, set, showName }: { d: Draft; set: (p: Partial<Draft>) => v
   );
 }
 
-function MeasuresStep({ d, set }: { d: Draft; set: (p: Partial<Draft>) => void }) {
+function MeasuresStep({ d, set, avgWeight }: { d: Draft; set: (p: Partial<Draft>) => void; avgWeight?: number }) {
   const badW = d.weight && !inRange(d.weight, 35, 250);
-  const badF = !optionalInRange(d.fat, 3, 60);
+  const badF = !optionalInRange(d.fat, 3, 60) || !optionalInRange(d.smm ?? '', 10, 80);
   return (
     <>
-      <StepTitle eyebrow="PUNTO DE PARTIDA" title="Peso y grasa" sub="Mejor en ayunas, después del baño. A partir de mañana la app usa la media de 7 días." />
+      <StepTitle eyebrow="PUNTO DE PARTIDA" title="Peso y grasa" sub={avgWeight !== undefined ? 'Tu última pesada. Si la cambias se guarda como la pesada de hoy.' : 'Mejor en ayunas, después del baño. A partir de mañana la app usa la media de 7 días.'} />
       <Card>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <Field flex label="PESO ACTUAL" value={d.weight} onChange={(weight) => set({ weight })} suffix="KG" placeholder="78,5" />
           <Field flex label="GRASA (OPC.)" value={d.fat} onChange={(fat) => set({ fat })} suffix="%" placeholder="18" />
         </View>
-        {badW || badF ? <Hint color={C.coral}>REVISA LOS VALORES: PESO 35–250 KG, GRASA 3–60 %.</Hint> : null}
+        <Field label="MASA MUSCULAR ESQUELÉTICA (OPC.)" value={d.smm ?? ''} onChange={(smm) => set({ smm })} suffix="KG" placeholder="36,5" />
+        {badW || badF ? <Hint color={C.coral}>REVISA LOS VALORES: PESO 35–250 KG, GRASA 3–60 %, MASA MUSCULAR 10–80 KG.</Hint> : null}
+        {avgWeight !== undefined ? <Hint color={C.lime}>{`LOS CÁLCULOS USAN LA MEDIA DE 7 DÍAS: ${decimal(avgWeight)} KG. POR ESO ESE NÚMERO SE MUEVE MÁS DESPACIO QUE LA BÁSCULA.`}</Hint> : null}
         <Hint>CON % DE GRASA USAMOS KATCH-MCARDLE (MÁS PRECISA). SIN ÉL, MIFFLIN-ST JEOR. PUEDES AÑADIRLO DESPUÉS EN CUERPO.</Hint>
       </Card>
     </>
@@ -370,8 +374,10 @@ function SummaryStep({ d }: { d: Draft }) {
 
 // ---------- wizard ----------
 
-function ProfileWizard({ initial, base, onDone, onCancel, onDemo, sheet }: {
+function ProfileWizard({ initial, base, onDone, onCancel, onDemo, sheet, avgWeight }: {
   initial: Draft;
+  /** 7-day average shown under the weight when editing (the field holds the last weigh-in). */
+  avgWeight?: number;
   base?: Profile;
   onDone: (p: Profile, d: Draft) => void;
   onCancel?: () => void;
@@ -406,7 +412,7 @@ function ProfileWizard({ initial, base, onDone, onCancel, onDemo, sheet }: {
   const content = {
     intro: <IntroStep d={d} set={set} onDemo={onDemo} />,
     tu: <YouStep d={d} set={set} showName={!!base} />,
-    medidas: <MeasuresStep d={d} set={set} />,
+    medidas: <MeasuresStep d={d} set={set} avgWeight={avgWeight} />,
     objetivo: <GoalStep d={d} set={set} />,
     entreno: <TrainingStep d={d} set={set} />,
     actividad: <ActivityStep d={d} set={set} />,
@@ -455,7 +461,8 @@ export function OnboardingScreen() {
       onDemo={(name) => replaceAll(buildDemoData(name ? { name } : {}))}
       onDone={(p, d) => {
         const fat = num(d.fat);
-        if (fat) addBodyComp({ date: p.createdAt, fatPct: fat });
+        const smm = num(d.smm ?? '');
+        if (fat || smm) addBodyComp({ date: p.createdAt, fatPct: fat, smmKg: smm });
         updateSettings({ plannedMinutes: d.minutes });
         setProfile(p);
       }}
@@ -468,13 +475,16 @@ export function ProfileEditScreen() {
   const nav = useNav();
   const s = useStore();
   const { profile, weight, fatPct, today: day } = useDerived();
+  // The field shows the last weigh-in (what you typed), not the 7-day average the app calculates with.
+  const lastWeighIn = [...s.weighIns].sort((a, b) => a.date.localeCompare(b.date)).at(-1)?.kg ?? weight;
   const initial: Draft = {
     name: profile.name,
     sex: profile.sex,
     age: String(profile.age),
     height: String(profile.heightCm),
-    weight: decimal(weight),
+    weight: decimal(lastWeighIn),
     fat: decimal(fatPct),
+    smm: decimal([...s.bodyComps].filter((b) => b.smmKg !== undefined).sort((a, b) => a.date.localeCompare(b.date)).at(-1)?.smmKg),
     goal: profile.goal ?? 'recomp',
     pace: profile.pace ?? 'moderado',
     target: decimal(profile.targetWeightKg),
@@ -486,15 +496,23 @@ export function ProfileEditScreen() {
   return (
     <ProfileWizard
       sheet
+      avgWeight={weight}
       initial={initial}
       base={profile}
       onCancel={() => nav.goBack()}
       onDone={(p, d) => {
         if (d.weight !== initial.weight) s.addWeighIn({ date: day, kg: num(d.weight)! });
         const fat = num(d.fat);
-        if (fat && d.fat !== initial.fat) s.addBodyComp({ ...s.bodyComps.find((b) => b.date === day), date: day, fatPct: fat });
+        const smm = num(d.smm ?? '');
+        const fatChanged = !!fat && d.fat !== initial.fat;
+        const smmChanged = !!smm && d.smm !== initial.smm;
+        if (fatChanged || smmChanged) {
+          const prev = s.bodyComps.find((b) => b.date === day);
+          s.addBodyComp({ ...prev, date: day, ...(fatChanged ? { fatPct: fat } : {}), ...(smmChanged ? { smmKg: smm } : {}) });
+        }
         s.updateSettings({ plannedMinutes: d.minutes });
-        s.setProfile(p);
+        // A weigh-in on the start date may have just updated the starting weight: keep it.
+        s.setProfile({ ...p, startWeightKg: useStore.getState().profile?.startWeightKg ?? p.startWeightKg });
         nav.goBack();
       }}
     />

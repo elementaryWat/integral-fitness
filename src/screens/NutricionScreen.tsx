@@ -1,27 +1,29 @@
+import { useState } from 'react';
 import { Alert, Pressable, View } from 'react-native';
 import { Hatch } from '../components/charts';
 import { Screen } from '../components/Screen';
 import { fmt, fmtSigned } from '../data';
-import { addDays, dayLetter, shortDay, startOfWeek } from '../domain/dates';
-import type { DayType } from '../domain/types';
+import { addDays, dayLetter, dayName, parseISO, shortDay, startOfWeek } from '../domain/dates';
+import { groupByMeal, MEALS, mealLabel } from '../domain/meals';
+import type { DayType, ISODate } from '../domain/types';
 import { aiReady, type ScanKind } from '../ai/api';
 import { useNav } from '../navigation';
 import { useStore } from '../store';
 import { useDerived } from '../store/derived';
 import { C, body, cond, em, mono } from '../theme';
-import { Card, Eyebrow, LinkButton, Row, ScreenHeader, SectionTitle, Segmented, T } from '../ui';
+import { Card, Eyebrow, LinkButton, Row, ScreenHeader, SectionTitle, Segmented, T, actions } from '../ui';
 
 const DAY_TYPES: DayType[] = ['Pesado', 'Moderado', 'Descanso'];
 
-function TdeeCard() {
+function TdeeCard({ day }: { day: ISODate }) {
   const { today, energyOn, profile } = useDerived();
   const coach = useStore((s) => s.coach);
-  const e = energyOn(today);
+  const e = energyOn(day);
   const r = coach.lastRecalibration;
   const offset = e.target - (e.tdee - profile.deficitKcal);
   return (
     <Card>
-      <Eyebrow>TDEE DINÁMICO · HOY</Eyebrow>
+      <Eyebrow>TDEE DINÁMICO · {dayName(day, today)}</Eyebrow>
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
         <T style={cond(64, 900)}>{fmt(e.tdee)}</T>
         <T style={[mono(12), { color: C.muted }]}>KCAL</T>
@@ -45,6 +47,9 @@ function TdeeCard() {
           {fmt(e.target)} <T style={[mono(11), { color: C.muted }]}>{profile.deficitKcal ? fmtSigned(-profile.deficitKcal) : ''}{offset ? ` ${offset > 0 ? '+' : '−'}${Math.abs(offset)}` : ''}</T>
         </T>
       </Row>
+      <T style={[body(12, 400, 1.4), { color: C.muted }]}>
+        El TDEE es lo que gastas ese día. El objetivo es lo que te toca comer: el TDEE menos el déficit de tu objetivo{offset ? ', con el ajuste del coach' : ''}.
+      </T>
       <T style={[mono(11, 500, 1.4), { color: C.muted }]}>
         {r
           ? `Recalibrado ${shortDay(r.date).toLowerCase()}: ${fmtSigned(r.delta)} kcal. Peso ${fmt(r.observedKgWk, 2)} kg/sem frente a ${fmt(r.expectedKgWk, 2)} previsto.`
@@ -54,19 +59,22 @@ function TdeeCard() {
   );
 }
 
-function MacrosCard() {
+function MacrosCard({ day }: { day: ISODate }) {
   const nav = useNav();
   const { today, energyOn, macrosOn } = useDerived();
   const foods = useStore((s) => s.foods);
   const removeFood = useStore((s) => s.removeFood);
-  const todays = foods.filter((f) => f.date === today);
+  const updateFood = useStore((s) => s.updateFood);
+  const addFood = useStore((s) => s.addFood);
+  const todays = foods.filter((f) => f.date === day);
+  const when = dayName(day, today);
   const cons = todays.reduce((a, f) => ({ p: a.p + f.p, c: a.c + f.c, f: a.f + f.f, kcal: a.kcal + f.kcal }), { p: 0, c: 0, f: 0, kcal: 0 });
-  const tgt = macrosOn(today);
-  const left = energyOn(today).target - cons.kcal;
+  const tgt = macrosOn(day);
+  const left = energyOn(day).target - cons.kcal;
   return (
     <Card gap={14}>
       <Row>
-        <Eyebrow>MACROS DE HOY</Eyebrow>
+        <Eyebrow>MACROS · {when}</Eyebrow>
         <T style={[mono(11), { color: left >= 0 ? C.lime : C.coral }]}>{fmt(Math.abs(left))} KCAL {left >= 0 ? 'RESTANTES' : 'DE MÁS'}</T>
       </Row>
       {([['Proteína', 'p', C.lime], ['Carbohidratos', 'c', C.cyan], ['Grasas', 'f', C.amber]] as const).map(([n, k, color]) => (
@@ -80,30 +88,47 @@ function MacrosCard() {
           </View>
         </View>
       ))}
-      <View style={{ borderTopWidth: 1, borderTopColor: C.line, paddingTop: 4 }}>
-        {todays.map((f) => (
-          <Row key={f.id} style={{ gap: 10, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: C.line }}>
-            <View style={{ flex: 1, gap: 3 }}>
-              <T style={body(14, 600)} lines={1}>{f.name}</T>
-              <T style={[mono(11, 500), { color: C.muted }]}>{fmt(f.grams)} g · P{f.p} C{f.c} G{f.f}</T>
-            </View>
-            <T style={cond(18)}>{fmt(f.kcal)}</T>
-            <Pressable onPress={() => removeFood(f.id)} hitSlop={8} accessibilityLabel={`Eliminar ${f.name}`}>
-              <T style={[mono(14), { color: C.dim }]}>×</T>
-            </Pressable>
-          </Row>
+      <View style={{ borderTopWidth: 1, borderTopColor: C.line, paddingTop: 4, gap: 4 }}>
+        {groupByMeal(todays).map((g) => (
+          <View key={g.label} style={{ paddingTop: 10 }}>
+            <Row style={{ paddingBottom: 4 }}>
+              <T style={[cond(18), { textTransform: 'uppercase', color: g.items.length ? C.text : C.dim }]}>{g.label}</T>
+              <Row style={{ gap: 14 }}>
+                {g.items.length ? <T style={[mono(11), { color: C.soft }]}>{fmt(g.kcal)} KCAL</T> : null}
+                {g.meal ? <LinkButton label="+ AÑADIR" onPress={() => nav.navigate('FoodAdd', { meal: g.meal, date: day })} /> : null}
+              </Row>
+            </Row>
+            {g.items.map((f) => (
+              <Pressable
+                key={f.id}
+                onPress={() => actions(f.name, [
+                  ...(day !== today ? [{ label: 'Copiar a hoy', onPress: () => addFood({ date: today, meal: f.meal, name: f.name, grams: f.grams, p: f.p, c: f.c, f: f.f, kcal: f.kcal }) }] : []),
+                  ...MEALS.filter((m) => m.key !== f.meal).map((m) => ({ label: `Mover a ${m.label.toLowerCase()}`, onPress: () => updateFood(f.id, { meal: m.key }) })),
+                  { label: 'Eliminar', destructive: true, onPress: () => removeFood(f.id) },
+                ])}
+                accessibilityHint={`En ${mealLabel(f.meal).toLowerCase()}. Toca para moverlo o eliminarlo`}
+                style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+              >
+                <Row style={{ gap: 10, paddingVertical: 9, borderTopWidth: 1, borderTopColor: C.line }}>
+                  <View style={{ flex: 1, gap: 3 }}>
+                    <T style={body(14, 600)} lines={1}>{f.name}</T>
+                    <T style={[mono(11, 500), { color: C.muted }]}>{fmt(f.grams)} g · P{f.p} C{f.c} G{f.f}</T>
+                  </View>
+                  <T style={cond(18)}>{fmt(f.kcal)}</T>
+                  <T style={[mono(14), { color: C.dim }]}>⋯</T>
+                </Row>
+              </Pressable>
+            ))}
+          </View>
         ))}
-        <View style={{ paddingTop: 12 }}>
-          <LinkButton label="+ AÑADIR ALIMENTO" onPress={() => nav.navigate('FoodAdd')} />
-        </View>
       </View>
     </Card>
   );
 }
 
-function CarbCyclingCard() {
-  const { today, dayTypeOn, macrosOn } = useDerived();
-  const week = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(today), i));
+function CarbCyclingCard({ day, onPick }: { day: ISODate; onPick: (d: ISODate) => void }) {
+  const { dayTypeOn, macrosOn } = useDerived();
+  const week = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(day), i));
   const carbs = week.map((d) => macrosOn(d).c);
   const max = Math.max(...carbs, 1);
   return (
@@ -114,16 +139,16 @@ function CarbCyclingCard() {
       </Row>
       <View style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-end', height: 120 }}>
         {week.map((d, i) => {
-          const isToday = d === today;
+          const isToday = d === day;
           const t = dayTypeOn(d);
           const vc = isToday ? C.lime : C.muted;
           const bg = isToday ? C.lime : t === 'Pesado' ? '#4c504a' : t === 'Moderado' ? '#2f322e' : C.line;
           return (
-            <View key={d} style={{ flex: 1, alignItems: 'center', gap: 6 }}>
+            <Pressable key={d} onPress={() => onPick(d)} style={{ flex: 1, alignItems: 'center', gap: 6 }}>
               <T style={[mono(10), { color: vc }]}>{carbs[i]}</T>
               <View style={{ width: '100%', height: Math.round((carbs[i] / max) * 80), backgroundColor: bg, borderRadius: 6 }} />
               <T style={[cond(13, 700), { color: vc }]}>{dayLetter(d)}</T>
-            </View>
+            </Pressable>
           );
         })}
       </View>
@@ -133,7 +158,7 @@ function CarbCyclingCard() {
 
 const SCAN_KINDS: ScanKind[] = ['plato', 'etiqueta', 'ticket'];
 
-function ScanCard() {
+function ScanCard({ day }: { day: ISODate }) {
   const nav = useNav();
   const link = useStore((s) => s.settings.watch);
   const open = (kind: ScanKind) => {
@@ -141,7 +166,7 @@ function ScanCard() {
       Alert.alert('IA', 'Configura el servidor en Hoy → Bip 6 → Reloj para usar la IA.');
       return;
     }
-    nav.navigate('FoodScan', { kind });
+    nav.navigate('FoodScan', { kind, date: day });
   };
   return (
     <Card>
@@ -170,18 +195,70 @@ function ScanCard() {
   );
 }
 
+/** Week of the chosen day: tap a day to see or log its food; arrows move a week. */
+function DayStrip({ day, onPick }: { day: ISODate; onPick: (d: ISODate) => void }) {
+  const { today, energyOn } = useDerived();
+  const foods = useStore((s) => s.foods);
+  const week = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(day), i));
+  const kcalOn = (d: ISODate) => foods.reduce((a, f) => (f.date === d ? a + f.kcal : a), 0);
+  const arrow = (label: string, n: number, hint: string) => (
+    <Pressable onPress={() => onPick(addDays(day, n))} accessibilityLabel={hint} hitSlop={8} style={({ pressed }) => ({ width: 28, alignItems: 'center', opacity: pressed ? 0.5 : 1 })}>
+      <T style={[cond(26, 700), { color: C.soft }]}>{label}</T>
+    </Pressable>
+  );
+  return (
+    <Card gap={10} padding={12}>
+      <Row>
+        <Eyebrow>{dayName(day, today)}{day === today ? ` · ${shortDay(day)}` : ''}</Eyebrow>
+        {day !== today ? <LinkButton label="VOLVER A HOY" onPress={() => onPick(today)} /> : <T style={[mono(10, 500), { color: C.dim }]}>TOCA UN DÍA PARA VERLO</T>}
+      </Row>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+        {arrow('‹', -7, 'Semana anterior')}
+        {week.map((d) => {
+          const on = d === day;
+          const kcal = kcalOn(d);
+          const pct = kcal ? Math.min(1, kcal / Math.max(1, energyOn(d).target)) : 0;
+          const future = d > today;
+          return (
+            <Pressable
+              key={d}
+              onPress={() => onPick(d)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+              accessibilityLabel={`${dayName(d, today)}${kcal ? `, ${kcal} kcal` : ', sin comidas'}`}
+              style={({ pressed }) => ({ flex: 1, alignItems: 'center', gap: 4, paddingVertical: 8, borderRadius: 12, backgroundColor: on ? C.lime : 'transparent', borderWidth: d === today && !on ? 1 : 0, borderColor: C.lime, opacity: pressed ? 0.7 : 1 })}
+            >
+              <T style={[mono(10, 600), { color: on ? C.bg : future ? C.dim : C.muted }]}>{dayLetter(d)}</T>
+              <T style={[cond(20, 800), { color: on ? C.bg : future ? C.dim : C.text }]}>{parseISO(d).getDate()}</T>
+              <View style={{ width: 22, height: 3, borderRadius: 2, backgroundColor: on ? 'rgba(0,0,0,0.2)' : C.line, overflow: 'hidden' }}>
+                <View style={{ width: `${pct * 100}%`, height: '100%', backgroundColor: on ? C.bg : C.lime }} />
+              </View>
+              <T style={[mono(9, 500), { color: on ? C.bg : C.dim }]}>{kcal ? fmt(kcal) : '—'}</T>
+            </Pressable>
+          );
+        })}
+        {arrow('›', 7, 'Semana siguiente')}
+      </View>
+    </Card>
+  );
+}
+
 export function NutricionScreen() {
   const { today, dayTypeOn } = useDerived();
-  const override = useStore((s) => s.dayTypeOverride[today]);
+  const [picked, setPicked] = useState<ISODate | null>(null);
+  const day = picked ?? today;
+  const pick = (d: ISODate) => setPicked(d === today ? null : d);
+  const override = useStore((s) => s.dayTypeOverride[day]);
   const setDayType = useStore((s) => s.setDayType);
-  const type = dayTypeOn(today);
+  const type = dayTypeOn(day);
   return (
     <Screen>
-      <ScreenHeader eyebrow="NUTRICIÓN ADAPTATIVA" title={`Día ${type.toLowerCase()}`} />
+      <ScreenHeader eyebrow={day === today ? 'NUTRICIÓN ADAPTATIVA' : `NUTRICIÓN · ${shortDay(day)}`} title={`Día ${type.toLowerCase()}`} />
+      <DayStrip day={day} onPick={pick} />
       <Segmented
         options={DAY_TYPES}
         value={type}
-        onChange={(d) => setDayType(today, d)}
+        onChange={(d) => setDayType(day, d)}
         height={38}
         radius={10}
         outerRadius={14}
@@ -189,12 +266,12 @@ export function NutricionScreen() {
       />
       <Row style={{ paddingHorizontal: 2 }}>
         <T style={[mono(10, 500), { color: C.dim }]}>{override ? 'TIPO DE DÍA ELEGIDO A MANO' : 'TIPO DE DÍA SEGÚN TU SESIÓN'}</T>
-        {override ? <LinkButton label="AUTOMÁTICO" onPress={() => setDayType(today, undefined)} /> : null}
+        {override ? <LinkButton label="AUTOMÁTICO" onPress={() => setDayType(day, undefined)} /> : null}
       </Row>
-      <TdeeCard />
-      <MacrosCard />
-      <CarbCyclingCard />
-      <ScanCard />
+      <MacrosCard day={day} />
+      <TdeeCard day={day} />
+      <CarbCyclingCard day={day} onPick={pick} />
+      <ScanCard day={day} />
     </Screen>
   );
 }

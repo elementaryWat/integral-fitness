@@ -3,9 +3,10 @@ import { Pressable, View } from 'react-native';
 import { BodyMap } from '../components/charts';
 import { Screen } from '../components/Screen';
 import { STATUS_COLOR, STATUS_LABEL, fmt, fmtSigned } from '../data';
-import { addDays, longDay } from '../domain/dates';
+import { longDay } from '../domain/dates';
 import { MUSCLE_INFO, type MuscleKey } from '../domain/muscles';
 import { BALANCE_LABEL } from '../engines/balance';
+import { dayAdvice, STEP_GOAL } from '../engines/recovery';
 import { buildQueue } from '../engines/generator';
 import { useNav, useUi } from '../navigation';
 import { useStore } from '../store';
@@ -13,43 +14,55 @@ import { useDerived } from '../store/derived';
 import { C, body, cond, em, mono } from '../theme';
 import { Card, Eyebrow, LinkButton, Row, T } from '../ui';
 
+const stressLabel = (v: number) => (v < 40 ? 'relajado' : v < 60 ? 'normal' : v < 80 ? 'medio' : 'alto');
+const hm = (min: number) => `${Math.floor(min / 60)} H ${String(Math.round(min % 60)).padStart(2, '0')}`;
+
+/** Today's readiness: score, the four signals that feed it and what to do with your training. */
 function RecoveryCard() {
   const nav = useNav();
-  const { recovery: r, today } = useDerived();
-  const activity = useStore((s) => s.activity);
+  const { recovery: r, states } = useDerived();
   const watchOn = useStore((s) => s.settings.watch.enabled);
   const healthStatus = useUi((s) => s.healthStatus);
-  const baseDays = activity.filter((a) => a.date < today && a.date >= addDays(today, -7) && (a.hrvMs || a.restingHr)).length;
-  const scoreHint = r.score !== null ? null
-    : !r.hrv && !r.restingHr ? (watchOn ? 'ABRE RECOMP EN EL RELOJ' : 'TOCA PARA REGISTRAR')
-    : `BASE ${Math.min(baseDays, 3)}/3 DÍAS`;
+  const advice = dayAdvice(r.score, states);
+  const vs = (n: number | null | undefined, unit = '') => (n == null ? null : `${fmtSigned(Math.round(n))}${unit} vs 7 d`);
+  const signal: [string, string, string] = r.hrv
+    ? ['HRV nocturno', `${r.hrv.value} MS`, r.hrv.vsBaselinePct != null ? `${fmtSigned(Math.round(r.hrv.vsBaselinePct))}% vs 7 d` : 'sin base']
+    : r.stress
+      ? [r.stress.night ? 'Estrés nocturno' : 'Estrés del día', String(r.stress.value), vs(r.stress.vsBaseline) ?? stressLabel(r.stress.value)]
+      : ['Estrés nocturno', '—', watchOn ? 'abre Wrep en el reloj' : healthStatus ?? 'sin dato'];
   const stats: [string, string, string][] = [
-    ['HRV nocturno', r.hrv ? `${r.hrv.value} MS` : '—', r.hrv?.vsBaselinePct != null ? `${fmtSigned(r.hrv.vsBaselinePct)}% vs 7 d` : r.hrv ? 'sin base' : healthStatus ?? 'manual'],
-    ['Sueño profundo', r.deepSleepMin ? `${Math.floor(r.deepSleepMin / 60)} H ${String(r.deepSleepMin % 60).padStart(2, '0')}` : '—', r.deepSleepMin ? 'última noche' : 'sin dato'],
-    ['FC reposo', r.restingHr ? `${r.restingHr.value} LPM` : '—', r.restingHr?.vsBaseline != null ? `${fmtSigned(Math.round(r.restingHr.vsBaseline))} vs 7 d` : r.restingHr ? 'sin base' : 'sin dato'],
-    ['Pasos', r.steps ? fmt(r.steps) : '—', r.steps ? 'hoy' : 'sin dato'],
+    signal,
+    ['Sueño', r.sleep ? hm(r.sleep.min) : r.deepSleepMin ? hm(r.deepSleepMin) : '—', r.sleep?.deepMin ? `profundo ${hm(r.sleep.deepMin).toLowerCase()} · ${r.sleep.deepPct} %` : 'sin dato'],
+    ['FC reposo', r.restingHr ? `${r.restingHr.value} LPM` : '—', vs(r.restingHr?.vsBaseline) ?? (r.restingHr ? 'sin base' : 'sin dato')],
+    ['Pasos', r.steps ? fmt(r.steps) : '—', `de ${fmt(STEP_GOAL)}${r.pai ? ` · PAI ${r.pai}` : ''}`],
   ];
+  const hint = r.score === null ? (watchOn ? 'ABRE WREP EN EL RELOJ' : 'TOCA PARA VER') : r.provisional ? `PROVISIONAL · BASE ${Math.min(r.baseDays, 3)}/3` : 'VS TUS ÚLTIMOS 7 DÍAS';
   return (
-    <Pressable onPress={() => nav.navigate('ActivityEntry')} accessibilityLabel="Registrar datos de recuperación" style={{ backgroundColor: C.lime, borderRadius: 20, padding: 18, flexDirection: 'row', gap: 18, alignItems: 'flex-end' }}>
-      <View style={{ gap: 2 }}>
-        <T style={[mono(10), { letterSpacing: em(10, 0.12), color: C.bg }]}>RECUPERACIÓN</T>
-        {r.score !== null ? (
-          <T style={[cond(96, 900), { color: C.bg, letterSpacing: em(96, -0.03), marginBottom: -12 }]}>{r.score}</T>
-        ) : (
-          <View style={{ gap: 4, maxWidth: 96 }}>
-            <T style={[cond(40, 900), { color: C.bg }]}>—</T>
-            <T style={[mono(9, 600, 1.3), { color: C.bg }]}>{scoreHint}</T>
-          </View>
-        )}
+    <Pressable onPress={() => nav.navigate('RecoveryDetail')} accessibilityLabel="Ver detalle de recuperación" style={{ backgroundColor: C.lime, borderRadius: 20, padding: 18, gap: 14 }}>
+      <View style={{ flexDirection: 'row', gap: 18, alignItems: 'flex-end' }}>
+        <View style={{ gap: 2, maxWidth: 104 }}>
+          <T style={[mono(10), { letterSpacing: em(10, 0.12), color: C.bg }]}>RECUPERACIÓN</T>
+          <T style={[cond(r.score !== null ? 88 : 40, 900), { color: C.bg, letterSpacing: em(88, -0.03), marginBottom: r.score !== null ? -10 : 0 }]}>{r.score ?? '—'}</T>
+          <T style={[mono(9, 600, 1.3), { color: C.bg, paddingTop: r.score !== null ? 8 : 0 }]}>{hint}</T>
+        </View>
+        <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', rowGap: 12, columnGap: 10 }}>
+          {stats.map(([k, v, d], i) => (
+            <View key={k} style={{ width: '45%', flexGrow: 1, gap: 2 }}>
+              <T style={[body(11, 600), { color: C.bg }]}>{k}</T>
+              <T style={[cond(24), { color: C.bg }]}>{v}</T>
+              {i === 3 ? (
+                <View style={{ height: 4, borderRadius: 2, backgroundColor: 'rgba(0,0,0,0.15)', overflow: 'hidden', marginVertical: 2 }}>
+                  <View style={{ width: `${Math.min(100, ((r.steps ?? 0) / STEP_GOAL) * 100)}%`, height: 4, backgroundColor: C.bg }} />
+                </View>
+              ) : null}
+              <T style={[mono(10), { color: C.bg }]} lines={2}>{d}</T>
+            </View>
+          ))}
+        </View>
       </View>
-      <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', rowGap: 12, columnGap: 10 }}>
-        {stats.map(([k, v, d]) => (
-          <View key={k} style={{ width: '45%', flexGrow: 1, gap: 2 }}>
-            <T style={[body(11, 600), { color: C.bg }]}>{k}</T>
-            <T style={[cond(24), { color: C.bg }]}>{v}</T>
-            <T style={[mono(10), { color: C.bg }]}>{d}</T>
-          </View>
-        ))}
+      <View style={{ borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.18)', paddingTop: 12, gap: 3 }}>
+        <T style={[cond(20), { color: C.bg, textTransform: 'uppercase' }]}>{advice.title}</T>
+        <T style={[body(13, 500, 1.35), { color: C.bg }]}>{advice.detail}</T>
       </View>
     </Pressable>
   );
@@ -111,45 +124,23 @@ function MuscleMapCard() {
   );
 }
 
-function Engine8020Card() {
+/** The 80/20 check lives in Coach; Hoy only warns when the last 7 days are out of range. */
+function BalanceAlert() {
+  const nav = useNav();
   const { balance: b } = useDerived();
-  const upper = b.total ? Math.round((1 - b.lowerShare) * 100) : 80;
-  const lower = b.total ? 100 - upper : 20;
-  const statusColor = b.status === 'en-objetivo' ? C.lime : b.status === 'sin-datos' ? C.muted : C.coral;
+  if (!b.total || (b.status === 'en-objetivo' && b.pushPullOk)) return null;
+  const lowerPct = Math.round(b.lowerShare * 100);
+  const msg = b.status === 'pierna-baja' ? `Pierna al ${lowerPct} % de tus series (objetivo ~20 %).`
+    : b.status === 'pierna-alta' ? `Pierna al ${lowerPct} % de tus series: más de lo previsto para la recomposición.`
+    : `Empuje y tracción desequilibrados (${b.push}:${b.pull} series).`;
   return (
-    <Card>
-      <Row>
-        <Eyebrow>MOTOR 80/20 · 7 DÍAS</Eyebrow>
-        <Eyebrow color={statusColor} spacing={0}>{BALANCE_LABEL[b.status]}</Eyebrow>
-      </Row>
-      <Row style={{ alignItems: 'flex-end' }}>
-        <View style={{ gap: 2 }}>
-          <T style={[cond(64, 900), { color: b.total ? C.lime : C.dim }]}>{upper}%</T>
-          <T style={[body(12), { color: C.muted }]}>Superior + core</T>
-        </View>
-        <View style={{ gap: 2, alignItems: 'flex-end' }}>
-          <T style={[cond(64, 900), { color: b.total ? C.cyan : C.dim }]}>{lower}%</T>
-          <T style={[body(12), { color: C.muted }]}>Inferior</T>
-        </View>
-      </Row>
-      <View style={{ height: 12, flexDirection: 'row', gap: 3 }}>
-        <View style={{ width: `${upper}%`, backgroundColor: b.total ? C.lime : C.border, borderTopLeftRadius: 6, borderBottomLeftRadius: 6 }} />
-        <View style={{ flex: 1, backgroundColor: b.total ? C.cyan : C.chip, borderTopRightRadius: 6, borderBottomRightRadius: 6 }} />
-        <View style={{ position: 'absolute', left: '80%', top: -4, width: 2, height: 20, backgroundColor: C.text }} />
+    <Pressable onPress={() => nav.navigate('Coach')} accessibilityRole="button" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: C.coral, borderRadius: 14, padding: 12 }}>
+      <View style={{ flex: 1, gap: 3 }}>
+        <Eyebrow color={C.coral}>{`MOTOR 80/20 · ${b.status === 'en-objetivo' ? 'EMPUJE:TRACCIÓN' : BALANCE_LABEL[b.status]}`}</Eyebrow>
+        <T style={[body(13, 500, 1.35), { color: C.soft }]}>{msg}</T>
       </View>
-      <View style={{ flexDirection: 'row', gap: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: C.line }}>
-        {[
-          ['Empuje', `${b.push} SER.`, C.text],
-          ['Tracción', `${b.pull} SER.`, C.text],
-          ['Ratio E:T', b.pull ? fmt(b.pushPull, 2) : '—', b.total && !b.pushPullOk ? C.coral : C.text],
-        ].map(([k, v, c]) => (
-          <View key={k} style={{ flex: 1, gap: 3 }}>
-            <T style={[body(11), { color: C.muted }]}>{k}</T>
-            <T style={[cond(24), { color: c }]}>{v}</T>
-          </View>
-        ))}
-      </View>
-    </Card>
+      <T style={[mono(11), { color: C.coral }]}>COACH →</T>
+    </Pressable>
   );
 }
 
@@ -178,7 +169,7 @@ export function HoyScreen() {
 
       <RecoveryCard />
       <MuscleMapCard />
-      <Engine8020Card />
+      <BalanceAlert />
 
       <Pressable onPress={() => nav.navigate('Entreno')} style={{ backgroundColor: C.text, borderRadius: 20, padding: 18, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
         <View style={{ flex: 1, gap: 6 }}>

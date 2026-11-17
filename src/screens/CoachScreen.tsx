@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Alert, Image, Pressable, View } from 'react-native';
+import { Alert, Pressable, View } from 'react-native';
 import { TrendChart, type TrendKey } from '../components/charts';
+import { Engine8020Card } from '../components/Balance';
+import { PhysiqueCard } from '../components/PhysiqueCard';
 import { Screen } from '../components/Screen';
 import { fmtSigned } from '../data';
 import { addDays, shortDay } from '../domain/dates';
@@ -11,11 +13,10 @@ import { weeklyReview } from '../engines/coachRules';
 import type { TrendSeries } from '../engines/trends';
 import { weeklyTrends } from '../engines/trends';
 import { useNav } from '../navigation';
-import { photoDataUrl, photoUri } from '../photos';
 import { useStore } from '../store';
 import { useDerived } from '../store/derived';
 import { C, body, cond, em, mono } from '../theme';
-import { Card, Empty, Eyebrow, GhostButton, Placeholder, PrimaryButton, ScreenHeader, T } from '../ui';
+import { Card, Empty, Eyebrow, GhostButton, PrimaryButton, ScreenHeader, T } from '../ui';
 
 const SERIES: [TrendKey, string, string][] = [
   ['f', 'FUERZA REL.', C.lime],
@@ -75,9 +76,6 @@ export function CoachScreen() {
 
   const applied = s.coach.appliedWeekOf === review.weekOf;
   const accepted = review.proposals.filter((p) => !rejected.includes(p.id));
-  const fronts = s.photos.filter((p) => p.view === 'frente').sort((a, b) => (a.date < b.date ? -1 : 1));
-  const first = fronts[0];
-  const last = fronts.length > 1 ? fronts.at(-1) : undefined;
 
   const activeAdjustments = [
     s.coach.kcalOffset ? `${fmtSigned(s.coach.kcalOffset)} kcal/día` : null,
@@ -87,6 +85,18 @@ export function CoachScreen() {
   ].filter((x): x is string => !!x);
 
   const ai = s.coach.aiReview?.[review.weekOf];
+  // What the AI review is based on: when any of these change, offer to regenerate it.
+  const from = addDays(d.today, -6);
+  const basis = [
+    d.weight.toFixed(1),
+    d.fatPct?.toFixed(1) ?? '-',
+    s.sessions.filter((x) => x.date >= from).length,
+    s.foods.filter((f) => f.date >= from).length,
+    s.weighIns.filter((w) => w.date >= from).length,
+  ].join('|');
+  const outdated = !!ai && ai.basis !== basis;
+  const ago = ai ? Math.max(0, Math.round((Date.now() - ai.at) / 60000)) : 0;
+  const agoText = ago < 60 ? `HACE ${ago} MIN` : ago < 60 * 24 ? `HACE ${Math.round(ago / 60)} H` : `HACE ${Math.round(ago / 1440)} D`;
 
   const reset = () =>
     Alert.alert('Borrar todos los datos', 'Se eliminan perfil, sesiones, medidas, comidas y ajustes. No se puede deshacer.', [
@@ -103,36 +113,14 @@ export function CoachScreen() {
         trendStats(trends, d.profile.goal, d.profile.targetRateKgWk, d.weight, d.fatPct),
         photos,
       );
-      s.setAiReview(review.weekOf, { ...res, at: Date.now() });
+      // A plain regenerate keeps the last photo note (photos are only sent on request).
+      s.setAiReview(review.weekOf, { ...res, photoNote: res.photoNote ?? (photos ? null : ai?.photoNote ?? null), at: Date.now(), basis });
     } catch (e) {
       Alert.alert('IA', e instanceof AiRequestError ? e.message : 'No se pudo completar la revisión.');
     } finally {
       setBusy(null);
     }
   };
-
-  const analyzePhotos = () => {
-    if (!first || !last || busy) return;
-    const older = first;
-    const newer = last;
-    const sendPhotos = async () => {
-      setBusy('photos');
-      try {
-        const photos = await Promise.all([photoDataUrl(older), photoDataUrl(newer)]);
-        await sendReview([photos[0], photos[1]]);
-      } catch (e) {
-        setBusy(null);
-        if (!(e instanceof AiRequestError)) Alert.alert('IA', 'No se pudieron leer las fotos de progreso.');
-      }
-    };
-    Alert.alert('Analizar fotos', 'Se enviarán tu primera y última foto de frente a OpenAI. No se guardan en el servidor.', [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Enviar', onPress: () => { sendPhotos(); } },
-    ]);
-  };
-
-  const photoCopy = ai?.photoNote
-    ?? (last ? 'Compara misma luz y postura.' : 'Añade fotos de frente en Cuerpo para comparar semanas.');
 
   return (
     <Screen>
@@ -177,7 +165,18 @@ export function CoachScreen() {
           ) : null}
         </Card>
       ) : null}
-      {!ai ? <PrimaryButton label={busy === 'review' ? 'Revisando…' : 'Revisión con IA'} onPress={() => { sendReview(); }} disabled={busy !== null} /> : null}
+      {!ai ? <PrimaryButton label={busy === 'review' ? 'Revisando…' : 'Revisión con IA'} onPress={() => { sendReview(); }} disabled={busy !== null} /> : (
+        <View style={{ gap: 6 }}>
+          <T style={[mono(10, 500, 1.4), { color: outdated ? C.amber : C.dim, paddingHorizontal: 2 }]}>
+            {outdated ? `GENERADO ${agoText} · TUS DATOS CAMBIARON DESDE ENTONCES` : `GENERADO ${agoText} CON TUS DATOS ACTUALES`}
+          </T>
+          {outdated ? (
+            <PrimaryButton label={busy === 'review' ? 'Regenerando…' : '↻ Regenerar con datos actuales'} onPress={() => { sendReview(); }} disabled={busy !== null} height={44} />
+          ) : (
+            <GhostButton label={busy === 'review' ? 'REGENERANDO…' : '↻ REGENERAR RESUMEN'} onPress={() => { if (!busy) sendReview(); }} height={40} />
+          )}
+        </View>
+      )}
 
       <Card gap={0}>
         <Eyebrow style={{ paddingBottom: 4 }}>SEÑALES DETECTADAS</Eyebrow>
@@ -196,25 +195,7 @@ export function CoachScreen() {
         })}
       </Card>
 
-      <Card gap={10}>
-        <Eyebrow>COMPARATIVA DE FOTOS · FRENTE</Eyebrow>
-        <View style={{ flexDirection: 'row', gap: 6 }}>
-          {[first, last].map((p, i) => (
-            <View key={i} style={{ flex: 1 }}>
-              {p ? (
-                <View>
-                  <Image source={{ uri: photoUri(p) }} style={{ height: 170, borderRadius: 12, borderWidth: i ? 1 : 0, borderColor: C.lime, backgroundColor: C.chip }} resizeMode="cover" />
-                  <T style={[mono(10, 500), { color: C.muted, paddingTop: 6 }]}>{shortDay(p.date)}{p.tags.weightKg ? ` · ${String(p.tags.weightKg).replace('.', ',')} kg` : ''}</T>
-                </View>
-              ) : (
-                <Placeholder label={i ? 'última' : 'primera'} height={170} radius={12} highlight={!!i} />
-              )}
-            </View>
-          ))}
-        </View>
-        <T style={[body(13, 400, 1.4), { color: C.soft }]}>{photoCopy}</T>
-        {last ? <GhostButton label={busy === 'photos' ? 'ANALIZANDO…' : 'ANALIZAR FOTOS'} onPress={analyzePhotos} /> : null}
-      </Card>
+      <PhysiqueCard review={review} />
 
       <Card gap={8}>
         <Eyebrow style={{ paddingBottom: 4 }}>AJUSTES PROPUESTOS · PRÓXIMA SEMANA</Eyebrow>
@@ -256,6 +237,7 @@ export function CoachScreen() {
         )}
       </Card>
 
+      <Engine8020Card />
       <GhostButton label="EDITAR PERFIL Y OBJETIVO" onPress={() => nav.navigate('ProfileEdit')} />
       <GhostButton label="BORRAR TODOS LOS DATOS" onPress={reset} color={C.coral} />
     </Screen>

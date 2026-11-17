@@ -35,6 +35,16 @@ class SceneDelegate: RCTDefaultReactNativeFactoryDelegate, UIWindowSceneDelegate
       connectionOptions: connectionOptions
     )
 
+    // Wrep splash: black window (no white flash) and the launch screen kept on top until the first JS frame.
+    window?.backgroundColor = .black
+    if let root = window?.rootViewController?.view as? RCTSurfaceHostingProxyRootView,
+       let splash = UIStoryboard(name: "LaunchScreen", bundle: nil).instantiateInitialViewController()?.view {
+      root.backgroundColor = .black
+      root.loadingView = splash
+      root.loadingViewFadeDelay = 0.1
+      root.loadingViewFadeDuration = 0.25
+    }
+
    
   }
 

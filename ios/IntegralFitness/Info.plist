@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Recomp</string>
+	<string>Wrep</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -34,15 +34,15 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Recomp usa la cámara para tus fotos de progreso (frente, perfil y espalda).</string>
+	<string>Wrep usa la cámara para tus fotos de progreso (frente, perfil y espalda).</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>Recomp lee tu HRV nocturno de Salud para calcular tu recuperación diaria.</string>
+	<string>Wrep lee de Salud tu HRV, FC en reposo y sueño para calcular tu recuperación diaria.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>Recomp no escribe datos en Salud.</string>
+	<string>Wrep no escribe datos en Salud.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Recomp accede a tus fotos para añadir fotos de progreso.</string>
+	<string>Wrep accede a tus fotos para añadir fotos de progreso.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIAppFonts</key>

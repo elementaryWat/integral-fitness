@@ -2,6 +2,7 @@
 
 Lista de lo que salió entrenando con el reloj, ordenada por impacto. Cada fase se puede entregar por separado.
 Cuando algo se termine, márcalo aquí y en [`FUNCIONALIDADES.md`](FUNCIONALIDADES.md).
+Lo que va más allá del entreno con el reloj (SideStore, login, multiusuario, calistenia, sobrecarga progresiva) está en [`ROADMAP.md`](ROADMAP.md).
 
 **Estado 2026-11-14:** Fases 1 y 2 implementadas (🧪 = falta probar en el gimnasio). El Motor 80/20 pasó a Coach. La comida por texto necesita desplegar el servidor. Pendiente: la Fase 3.
 

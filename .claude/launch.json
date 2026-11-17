@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "landing",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["landing/src/server.js"],
+      "env": { "PORT": "4310", "WAITLIST_FILE": "landing/data/waitlist.json" },
+      "port": 4310
+    }
+  ]
+}

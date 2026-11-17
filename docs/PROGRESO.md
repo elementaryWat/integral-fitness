@@ -115,11 +115,7 @@ El plan completo está en `~/.claude/plans/ahora-si-eager-leaf.md`; lo esencial 
 
 ### ⏳ Pendiente (en este orden)
 
-1. **Despliegue:**
-   - **El usuario** añade en Railway → Variables: `OPENAI_API_KEY`, `AI_ACCESS_CODES=73F9G5` y, si quiere, `OPENAI_MODEL`. Hay que confirmar con su key que el modelo existe y admite imágenes y `json_schema`.
-   - Desde `server/`: `railway up`.
-   - Comprobar con `curl https://…/v1/73F9G5/ai/status`, que debe devolver `enabled: true`.
-   - Instalar la versión Release en el iPhone (comando de arriba).
+1. **Despliegue:** ✅ la IA ya está en Railway (2026-11-17). Queda comprobar que `GET /v1/73F9G5/ai/status` devuelve `enabled: true` y que está desplegada la última versión del servidor (acciones `food`, `physique` y `routine`).
 2. **Prueba en el iPhone:**
     - escanear un plato y añadirlo;
     - escanear una etiqueta y guardarla en la despensa;

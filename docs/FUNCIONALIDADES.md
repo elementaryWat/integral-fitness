@@ -151,12 +151,14 @@ Cuando cambie algo, actualiza la marca y la fecha de la última columna (`AAAA-M
 | ✅ | Logo de tres barras (iOS, Android, reloj) | | |
 | 🧪 | Nombre "Wrep" en el iPhone, el reloj y la IA | Antes "Recomp"; bundle id y appId del reloj sin cambios | 2026-11-14 |
 | 🧪 | Splash screen con el logotipo WREP · FITNESS | `assets/brand/make_icons.py` genera iconos y splash | 2026-11-14 |
+| 🧪 | Landing web con lista de espera (encuesta de 4 preguntas + email) | `landing/`, servicio propio en Railway; falta desplegar y montar un Volume | 2026-11-17 |
 
 ---
 
 ## Pendiente y próximas ideas
 
 Las mejoras de entreno priorizadas (descanso, peso exacto, resumen, omitir, etc.) están en [`MEJORAS.md`](MEJORAS.md).
+La hoja de ruta general (SideStore, usuarios de prueba, login, datos multiusuario, modo calistenia y sobrecarga progresiva) está en [`ROADMAP.md`](ROADMAP.md).
 
 | Estado | Funcionalidad | Notas |
 |---|---|---|

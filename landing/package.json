@@ -1,0 +1,14 @@
+{
+  "name": "wrep-landing",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Landing de Wrep con lista de espera. Se despliega como servicio propio en Railway.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  }
+}

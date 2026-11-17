@@ -5,7 +5,7 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore, validateEntry } from '../src/waitlist.js';
-import { createApp } from '../src/server.js';
+import { assetsHost, createApp } from '../src/server.js';
 
 const valid = {
   goal: 'Recomposición (ambas)',
@@ -104,4 +104,54 @@ test('estáticos: sirve la landing y bloquea rutas fuera de public', async () =>
     assert.equal((await fetch(`${base}/..%2Fsrc%2Fserver.js`)).status, 404);
     assert.equal((await fetch(`${base}/nada.html`)).status, 404);
   });
+});
+
+test('config.js expone la clave de PostHog solo si existe', async () => {
+  await withServer({}, async (base) => {
+    const js = await (await fetch(`${base}/config.js`)).text();
+    assert.match(js, /"posthogKey":""/);
+    assert.equal((await fetch(`${base}/ingest/e/`, { method: 'POST', body: '{}' })).status, 404);
+  });
+  await withServer({ posthog: { key: 'phc_test', host: 'https://eu.i.posthog.com' } }, async (base) => {
+    const js = await (await fetch(`${base}/config.js`)).text();
+    assert.match(js, /"posthogKey":"phc_test"/);
+    assert.match(js, /"posthogApiHost":"\/ingest"/);
+    assert.match(js, /"posthogUiHost":"https:\/\/eu\.posthog\.com"/);
+  });
+});
+
+test('assetsHost apunta a los estáticos de PostHog', () => {
+  assert.equal(assetsHost('https://eu.i.posthog.com'), 'https://eu-assets.i.posthog.com');
+  assert.equal(assetsHost('http://127.0.0.1:9'), 'http://127.0.0.1:9');
+});
+
+test('proxy /ingest reenvía eventos y estáticos a PostHog', async () => {
+  const seen = [];
+  const upstream = createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      seen.push({ method: req.method, url: req.url, body: Buffer.concat(chunks).toString(), ip: req.headers['x-forwarded-for'] });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"status":1}');
+    });
+  });
+  await new Promise((r) => upstream.listen(0, r));
+  const host = `http://127.0.0.1:${upstream.address().port}`;
+  try {
+    await withServer({ posthog: { key: 'phc_test', host } }, async (base) => {
+      const r = await fetch(`${base}/ingest/e/?compression=gzip-js`, {
+        method: 'POST',
+        headers: { 'content-type': 'text/plain', 'x-forwarded-for': '1.2.3.4, 10.0.0.1' },
+        body: 'payload',
+      });
+      assert.equal(r.status, 200);
+      assert.deepEqual(await r.json(), { status: 1 });
+      assert.equal((await fetch(`${base}/ingest/static/array.js`)).status, 200);
+    });
+    assert.deepEqual(seen[0], { method: 'POST', url: '/e/?compression=gzip-js', body: 'payload', ip: '1.2.3.4' });
+    assert.equal(seen[1].url, '/static/array.js');
+  } finally {
+    upstream.close();
+  }
 });

@@ -1910,6 +1910,57 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - ReactNativeHealthkit (16.2.0):
+    - hermes-engine
+    - NitroModules
+    - RCTRequired
+    - RCTTypeSafety
+    - React-bridging
+    - React-callinvoker
+    - React-Core
+    - React-Core-prebuilt
+    - React-cxxstableapi
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - ReactNativeHealthkitCore (= 16.2.0)
+    - Yoga
+  - ReactNativeHealthkitCore (16.2.0):
+    - hermes-engine
+    - NitroModules
+    - RCTRequired
+    - RCTTypeSafety
+    - React-bridging
+    - React-callinvoker
+    - React-Core
+    - React-Core-prebuilt
+    - React-cxxstableapi
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - RNScreens (4.30.1):
     - hermes-engine
     - RCTRequired
@@ -2102,6 +2153,8 @@ DEPENDENCIES:
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
   - ReactNativeDependencies (from `../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec`)
   - "ReactNativeFs (from `../node_modules/@dr.pogodin/react-native-fs`)"
+  - "ReactNativeHealthkit (from `../node_modules/@kingstinct/react-native-healthkit`)"
+  - "ReactNativeHealthkitCore (from `../node_modules/@react-native-healthkit/core`)"
   - RNScreens (from `../node_modules/react-native-screens`)
   - RNSVG (from `../node_modules/react-native-svg`)
   - SocketRocket (from `build/rndeps-facades/SocketRocket`)
@@ -2291,6 +2344,10 @@ EXTERNAL SOURCES:
     :podspec: "../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec"
   ReactNativeFs:
     :path: "../node_modules/@dr.pogodin/react-native-fs"
+  ReactNativeHealthkit:
+    :path: "../node_modules/@kingstinct/react-native-healthkit"
+  ReactNativeHealthkitCore:
+    :path: "../node_modules/@react-native-healthkit/core"
   RNScreens:
     :path: "../node_modules/react-native-screens"
   RNSVG:
@@ -2391,6 +2448,8 @@ SPEC CHECKSUMS:
   ReactCommon: b63ce798b898ed77c6cfdeb80b18080161f52ed5
   ReactNativeDependencies: a5164c3ebbe90d992022b5d9cbabbf770a6d7d05
   ReactNativeFs: c0b2d8faaa402ae3224aa2c098aec9212fdc392e
+  ReactNativeHealthkit: 057a059021e4c76cc3465f961aed672b30e24647
+  ReactNativeHealthkitCore: b4e1fde48923ed05ddc014941d682ba5c34a0952
   RNScreens: f15a5bda1ddeff8575b8ce41d83885b67129f84b
   RNSVG: 0851af4352d2e692b44aada9dd7a1d361c18fcfc
   SocketRocket: 37aec555668fb852ec12e3c0de59a86ca58f0871
@@ -2398,4 +2457,4 @@ SPEC CHECKSUMS:
 
 PODFILE CHECKSUM: a05ac11e54c644dfe8611c8d8ddd11ddf6f84b6e
 
-COCOAPODS: 1.15.2
+COCOAPODS: 1.17.0

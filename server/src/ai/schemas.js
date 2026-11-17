@@ -52,6 +52,13 @@ export const EXERCISE_DRAFT = {
     levers: nullable({ type: 'array', items: str }),
     legImpact: nullable({ type: 'string', enum: ['bajo', 'alto'] }),
     notes: str,
+    technique: obj({
+      setup: { type: 'array', items: str },
+      steps: { type: 'array', items: str },
+      mistakes: { type: 'array', items: str },
+      feel: { type: 'array', items: { type: 'string', enum: MUSCLES } },
+      tip: nullable(str),
+    }),
   }),
 };
 
@@ -65,3 +72,37 @@ export const COACH_NARRATIVE = {
     photoNote: nullable(str),
   }),
 };
+
+/** Physique read from progress photos, contrasted with the user's data. */
+export const PHYSIQUE = {
+  name: 'physique_review',
+  schema: obj({
+    headline: str,
+    observations: { type: 'array', items: str },
+    strengths: { type: 'array', items: str },
+    priorities: { type: 'array', items: str },
+    bodyFat: nullable(obj({ low: { type: 'number' }, high: { type: 'number' }, note: str })),
+    dataCheck: str,
+    comparison: nullable(str),
+    actions: { type: 'array', items: str },
+  }),
+};
+
+/** Routine schema built per request: exercise ids are limited to the user's own library. */
+export function routineFormat(ids) {
+  return {
+    name: 'ai_routine',
+    schema: obj({
+      name: str,
+      rationale: str,
+      blocks: {
+        type: 'array',
+        items: obj({
+          exerciseIds: { type: 'array', items: { type: 'string', enum: ids } },
+          rounds: { type: 'integer' },
+          why: str,
+        }),
+      },
+    }),
+  };
+}

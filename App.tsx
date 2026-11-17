@@ -1,5 +1,5 @@
 /**
- * Recomp — phone app paired with an Amazfit Bip 6 (Zepp OS mini-app, simulated in-app for now).
+ * Wrep — phone app paired with an Amazfit Bip 6 (Zepp OS mini-app, simulated in-app for now).
  */
 import { useEffect } from 'react';
 import { Pressable, StatusBar, View } from 'react-native';
@@ -18,12 +18,19 @@ import { CuerpoScreen } from './src/screens/CuerpoScreen';
 import { EntrenoScreen } from './src/screens/EntrenoScreen';
 import { ExerciseEditScreen } from './src/screens/ExerciseEditScreen';
 import { ExerciseLibraryScreen } from './src/screens/ExerciseLibraryScreen';
+import { ExerciseDetailScreen } from './src/screens/ExerciseDetailScreen';
+import { SessionSummaryScreen } from './src/screens/SessionSummaryScreen';
+import { RecoveryDetailScreen } from './src/screens/RecoveryDetailScreen';
 import { FoodAddScreen } from './src/screens/FoodAddScreen';
+import { FoodScanScreen } from './src/screens/FoodScanScreen';
 import { HoyScreen } from './src/screens/HoyScreen';
 import { NutricionScreen } from './src/screens/NutricionScreen';
 import { OnboardingScreen, ProfileEditScreen } from './src/screens/OnboardingScreen';
 import { WatchPairScreen } from './src/screens/WatchPairScreen';
+import { ExercisePickerScreen } from './src/screens/ExercisePickerScreen';
+import { RoutinesScreen } from './src/screens/RoutinesScreen';
 import { useWatchSync } from './src/watch/useWatchSync';
+import { useHealthSync } from './src/health/useHealthSync';
 import { LiveSessionProvider } from './src/session';
 import { useStore } from './src/store';
 import { DerivedProvider, energyContext } from './src/store/derived';
@@ -97,6 +104,7 @@ function Root() {
   const setWatchOpen = useUi((s) => s.setWatchOpen);
   useWeeklyRecalibration();
   useWatchSync();
+  useHealthSync();
   return (
     <DerivedProvider>
     <LiveSessionProvider>
@@ -111,11 +119,17 @@ function Root() {
               <Stack.Group screenOptions={{ presentation: 'modal', contentStyle: { backgroundColor: C.bg } }}>
                 <Stack.Screen name="ExerciseLibrary" component={ExerciseLibraryScreen} />
                 <Stack.Screen name="ExerciseEdit" component={ExerciseEditScreen} />
+                <Stack.Screen name="ExerciseDetail" component={ExerciseDetailScreen} />
+                <Stack.Screen name="SessionSummary" component={SessionSummaryScreen} />
+                <Stack.Screen name="RecoveryDetail" component={RecoveryDetailScreen} />
                 <Stack.Screen name="FoodAdd" component={FoodAddScreen} />
+                <Stack.Screen name="FoodScan" component={FoodScanScreen} />
                 <Stack.Screen name="BodyEntry" component={BodyEntryScreen} />
                 <Stack.Screen name="ActivityEntry" component={ActivityEntryScreen} />
                 <Stack.Screen name="ProfileEdit" component={ProfileEditScreen} />
                 <Stack.Screen name="WatchPair" component={WatchPairScreen} />
+                <Stack.Screen name="ExercisePicker" component={ExercisePickerScreen} />
+                <Stack.Screen name="Routines" component={RoutinesScreen} />
               </Stack.Group>
             </>
           )}

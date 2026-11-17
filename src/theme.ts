@@ -31,3 +31,8 @@ export const mono = (size: number, weight: 500 | 600 = 600, lh?: number) => font
 
 /** CSS `letter-spacing: Nem` → RN px. */
 export const em = (size: number, n: number) => size * n;
+
+/** Body-map colours for muscles trained by an exercise or a session. */
+export const WORK_PRIMARY = '#c8f53c';
+export const WORK_SECONDARY = '#5f7a1c';
+export const WORK_NONE = '#232523';

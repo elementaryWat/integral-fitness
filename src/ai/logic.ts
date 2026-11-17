@@ -1,5 +1,5 @@
 import { MUSCLE_KEYS, type MuscleKey } from '../domain/muscles';
-import type { Discipline, Exercise, LoadMode, Pattern, Plane, Unit } from '../domain/types';
+import type { Discipline, Exercise, ExerciseTechnique, LoadMode, Pattern, Plane, Unit } from '../domain/types';
 import type { ExerciseDraftRaw, Macros100 } from './api';
 import { MUSCLE_INFO } from '../domain/muscles';
 
@@ -47,6 +47,36 @@ export function exerciseFromDraft(d: ExerciseDraftRaw): Omit<Exercise, 'id'> {
     repRange: [lo, hi],
     levers,
     legImpact: discipline === 'Cardio' ? oneOf(d.legImpact, ['bajo', 'alto'] as const, 'bajo') : undefined,
+    technique: techniqueFromDraft(d.technique),
     custom: true,
   };
+}
+
+const lines = (xs: unknown, max: number) =>
+  (Array.isArray(xs) ? xs : []).map((x) => String(x ?? '').trim().slice(0, 220)).filter(Boolean).slice(0, max);
+
+/** Technique cues from the AI: trimmed lists, known muscles only; undefined when there is nothing usable. */
+export function techniqueFromDraft(t: ExerciseDraftRaw['technique']): ExerciseTechnique | undefined {
+  if (!t || typeof t !== 'object') return undefined;
+  const out: ExerciseTechnique = {
+    setup: lines(t.setup, 3),
+    steps: lines(t.steps, 5),
+    mistakes: lines(t.mistakes, 4),
+    feel: muscles(t.feel),
+    tip: typeof t.tip === 'string' && t.tip.trim() ? t.tip.trim().slice(0, 220) : undefined,
+  };
+  return out.steps.length ? out : undefined;
+}
+
+/**
+ * Photos for the physique review: the latest set (front, side, back of the newest date) and,
+ * when there is an earlier one, the oldest front photo to compare against.
+ */
+export function physiquePhotos<P extends { date: string; view: 'frente' | 'perfil' | 'espalda' }>(photos: P[]): { date?: string; latest: P[]; older?: P } {
+  if (!photos.length) return { latest: [] };
+  const date = photos.reduce((m, p) => (p.date > m ? p.date : m), photos[0].date);
+  const order = { frente: 0, perfil: 1, espalda: 2 } as const;
+  const latest = photos.filter((p) => p.date === date).sort((a, b) => order[a.view] - order[b.view]);
+  const older = photos.filter((p) => p.view === 'frente' && p.date < date).sort((a, b) => (a.date < b.date ? -1 : 1))[0];
+  return { date, latest, older };
 }

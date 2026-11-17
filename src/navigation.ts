@@ -1,6 +1,8 @@
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { create } from 'zustand';
+import type { Meal } from './domain/meals';
+import type { ISODate } from './domain/types';
 import type { WatchLive } from './watch/relay';
 
 export type RootStackParamList = {
@@ -8,11 +10,17 @@ export type RootStackParamList = {
   Tabs: undefined;
   ExerciseLibrary: undefined;
   ExerciseEdit: { id?: string };
-  FoodAdd: undefined;
-  BodyEntry: undefined;
+  ExerciseDetail: { id: string; block?: number; index?: number };
+  SessionSummary: { id: string; celebrate?: boolean };
+  FoodAdd: { meal?: Meal; date?: ISODate } | undefined;
+  BodyEntry: { date?: string } | undefined;
   ActivityEntry: undefined;
+  RecoveryDetail: undefined;
   ProfileEdit: undefined;
   WatchPair: undefined;
+  FoodScan: { kind: 'plato' | 'etiqueta' | 'ticket'; text?: string; meal?: Meal; date?: ISODate };
+  ExercisePicker: { mode: 'replace' | 'add' | 'addBlock'; block?: number; index?: number };
+  Routines: undefined;
 };
 
 export type TabParamList = {
@@ -36,6 +44,9 @@ export const useUi = create<{
   watchLive: WatchLive | null;
   /** Last sync error, shown on the pairing screen */
   watchError: string | null;
+  /** Last Apple Health read result, shown on the recovery card when HRV is missing */
+  healthStatus: string | null;
+  setHealth: (s: string | null) => void;
   setWatch: (p: { watchStatus?: WatchStatus; watchLive?: WatchLive | null; watchError?: string | null }) => void;
 }>((set) => ({
   watchOpen: false,
@@ -43,5 +54,7 @@ export const useUi = create<{
   watchStatus: 'off',
   watchLive: null,
   watchError: null,
+  healthStatus: null,
+  setHealth: (healthStatus) => set({ healthStatus }),
   setWatch: (p) => set(p),
 }));

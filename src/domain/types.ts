@@ -1,3 +1,4 @@
+import type { Meal } from './meals';
 import type { MuscleKey, Region } from './muscles';
 
 export type { MuscleKey, Region };
@@ -69,6 +70,19 @@ export interface Exercise {
   custom?: boolean;
   /** Demanding skill or heavy lift: the generator only picks it for advanced lifters. */
   advanced?: boolean;
+  /** Own technique cues (custom exercises, or edited ones). Built-ins fall back to TECHNIQUE[id]. */
+  technique?: ExerciseTechnique;
+}
+
+/** How to perform an exercise: short, actionable cues. */
+export interface ExerciseTechnique {
+  setup: string[];
+  steps: string[];
+  /** Common mistake → fix. */
+  mistakes: string[];
+  /** Where you should feel it (highlighted on the body map). */
+  feel: MuscleKey[];
+  tip?: string;
 }
 
 export type BlockKey = 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
@@ -114,6 +128,8 @@ export interface SetLog {
   hrr60?: number;
   /** Velocity loss within the set, 0–1 (accelerometer, Fase 3) */
   velocityLoss?: number;
+  /** Skipped on the watch or the phone: marks the queue slot as done, not counted as work */
+  skipped?: boolean;
 }
 
 export type SessionSource = 'reloj' | 'movil';
@@ -128,7 +144,12 @@ export interface Session {
   queue: QueueItem[];
   sets: SetLog[];
   deload: boolean;
+  /** How you felt at the end (asked in the summary) */
+  feel?: SessionFeel;
 }
+
+/** 1 agotado · 2 cansado · 3 normal · 4 bien · 5 con energía */
+export interface SessionFeel { score: 1 | 2 | 3 | 4 | 5; tags?: string[]; at: number }
 
 // ---------- body ----------
 
@@ -156,6 +177,8 @@ export interface FoodEntry extends Macros {
   name: string;
   grams: number;
   kcal: number;
+  /** Desayuno, almuerzo, snack o cena. Old entries have none. */
+  meal?: Meal;
 }
 
 /** Daily wearable data (manual until Apple Health / Health Connect in Fase 4). */
@@ -167,6 +190,15 @@ export interface DailyActivity {
   sleepMin?: number;
   hrvMs?: number;
   restingHr?: number;
+  /** Sleep stages (min) and the watch's sleep score */
+  remMin?: number;
+  lightMin?: number;
+  awakeMin?: number;
+  sleepScore?: number;
+  /** Zepp stress 1–100 (HRV-based): day average and while asleep */
+  stressAvg?: number;
+  nightStress?: number;
+  pai?: number;
 }
 
 // ---------- coach ----------
@@ -203,6 +235,22 @@ export interface CoachState {
   appliedWeekOf?: ISODate;
   /** AI-written weekly review, cached per week (Fase 2) */
   aiReview?: Record<ISODate, AiCoachReview>;
+  /** AI read of the progress photos, keyed by the date of the photo set */
+  physique?: Record<ISODate, PhysiqueReview>;
+}
+
+export interface PhysiqueReview {
+  headline: string;
+  observations: string[];
+  strengths: string[];
+  priorities: string[];
+  bodyFat: { low: number; high: number; note: string } | null;
+  dataCheck: string;
+  comparison: string | null;
+  actions: string[];
+  at: number;
+  /** Photo ids it looked at */
+  photoIds: string[];
 }
 
 export interface AiCoachReview {
@@ -212,6 +260,8 @@ export interface AiCoachReview {
   watch: string[];
   photoNote: string | null;
   at: number;
+  /** Snapshot of the data it was based on (weight, sessions, foods…) to tell when it is outdated */
+  basis?: string;
 }
 
 /** Product saved from a label or receipt scan, logged later by grams. */

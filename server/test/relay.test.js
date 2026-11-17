@@ -50,3 +50,28 @@ test('live heart rate', () => withRelay(async (call) => {
   assert.equal(live.hr, 141);
   assert.equal(live.mode, 'set');
 }));
+
+test('daily wearable metrics are merged per date and validated', () => withRelay(async (call) => {
+  assert.equal((await call('POST', '/v1/ABC123/daily', { date: 'hoy', steps: 10 })).status, 400);
+  await call('POST', '/v1/ABC123/daily', { date: '2026-11-13', steps: 5400, restingHr: 54, sleepMin: -1 });
+  await call('POST', '/v1/ABC123/daily', { date: '2026-11-13', deepSleepMin: 82 });
+  const { days } = (await call('GET', '/v1/ABC123/daily')).body;
+  assert.equal(days['2026-11-13'].steps, 5400);
+  assert.equal(days['2026-11-13'].deepSleepMin, 82);
+  assert.equal(days['2026-11-13'].sleepMin, undefined);
+}));
+
+test('daily accepts sleep stages, stress and PAI, and history only fills missing values', () => withRelay(async (call) => {
+  await call('POST', '/v1/ABC123/daily', { date: '2026-11-12', stressAvg: 40 });
+  await call('POST', '/v1/ABC123/daily', {
+    date: '2026-11-14', sleepMin: 430, remMin: 90, sleepScore: 78, stressAvg: 31, nightStress: 18, pai: 42,
+    history: [{ date: '2026-11-12', stressAvg: 99, pai: 30 }, { date: '2026-11-13', stressAvg: 35 }, { date: 'bad', stressAvg: 1 }],
+  });
+  const { days } = (await call('GET', '/v1/ABC123/daily')).body;
+  assert.equal(days['2026-11-14'].nightStress, 18);
+  assert.equal(days['2026-11-14'].remMin, 90);
+  assert.equal(days['2026-11-12'].stressAvg, 40);
+  assert.equal(days['2026-11-12'].pai, 30);
+  assert.equal(days['2026-11-13'].stressAvg, 35);
+  assert.equal(days.bad, undefined);
+}));

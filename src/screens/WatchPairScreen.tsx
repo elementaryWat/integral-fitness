@@ -16,8 +16,8 @@ function suggestedUrl() {
 
 const STEPS = [
   'En el Mac: `npm start` dentro de server/ (el servidor puente).',
-  'Instala Recomp en el Bip 6 desde la app Zepp (modo desarrollador).',
-  'App Zepp → Perfil → Recomp → Ajustes: pega la URL y el código de abajo.',
+  'Instala Wrep en el Bip 6 desde la app Zepp (modo desarrollador).',
+  'App Zepp → Perfil → Wrep → Ajustes: pega la URL y el código de abajo.',
   'Empieza una sesión en Entreno: aparecerá en el reloj.',
 ];
 

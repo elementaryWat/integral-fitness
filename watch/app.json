@@ -2,41 +2,73 @@
   "configVersion": "v3",
   "app": {
     "appId": 1136058,
-    "appName": "Recomp",
+    "appName": "Wrep",
     "appType": "app",
-    "version": { "code": 1, "name": "0.1.0" },
+    "version": {
+      "code": 1,
+      "name": "0.1.0"
+    },
     "icon": "icon.png",
     "vender": "recomp",
-    "description": "Registro de series, descanso con vibración y pulso para Recomp"
+    "description": "Registro de series, descanso con vibraci\u00f3n y pulso para Wrep"
   },
   "permissions": [
     "data:os.device.info",
     "data:user.hd.heart_rate",
     "device:os.accelerometer",
-    "device:os.local_storage"
+    "device:os.local_storage",
+    "data:user.hd.step",
+    "data:user.hd.sleep",
+    "data:user.hd.stress",
+    "data:user.hd.pai"
   ],
   "runtime": {
-    "apiVersion": { "compatible": "3.6", "target": "4.2", "minVersion": "3.6" }
+    "apiVersion": {
+      "compatible": "3.6",
+      "target": "4.2",
+      "minVersion": "3.6"
+    }
   },
   "debug": false,
   "targets": {
     "bip6": {
       "module": {
-        "page": { "pages": ["page/index"] },
-        "app-side": { "path": "app-side/index" },
-        "setting": { "path": "setting/index" }
+        "page": {
+          "pages": [
+            "page/index"
+          ]
+        },
+        "app-side": {
+          "path": "app-side/index"
+        },
+        "setting": {
+          "path": "setting/index"
+        }
       },
       "platforms": [
-        { "name": "bip6", "deviceSource": 9765120 },
-        { "name": "bip6", "deviceSource": 9765121 },
-        { "name": "bip6", "deviceSource": 10158337 }
+        {
+          "name": "bip6",
+          "deviceSource": 9765120
+        },
+        {
+          "name": "bip6",
+          "deviceSource": 9765121
+        },
+        {
+          "name": "bip6",
+          "deviceSource": 10158337
+        }
       ],
       "designWidth": 390
     }
   },
   "i18n": {
-    "es-ES": { "appName": "Recomp" },
-    "en-US": { "appName": "Recomp" }
+    "es-ES": {
+      "appName": "Wrep"
+    },
+    "en-US": {
+      "appName": "Wrep"
+    }
   },
   "defaultLanguage": "es-ES"
 }

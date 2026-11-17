@@ -40,7 +40,17 @@ export function Ring({ progress, color, size = 150 }: { progress: number; color:
 }
 
 /** Front/back anatomical map; muscles colored by training status, selected one outlined. */
-export function BodyMap({ view, selected, onSelect, status, width = 170 }: { view: 'front' | 'back'; selected: MuscleKey; onSelect: (k: MuscleKey) => void; status: (k: MuscleKey) => MuscleStatus; width?: number }) {
+export function BodyMap({ view, selected, onSelect, status, fill, outline, width = 170 }: {
+  view: 'front' | 'back';
+  selected?: MuscleKey;
+  onSelect: (k: MuscleKey) => void;
+  status?: (k: MuscleKey) => MuscleStatus;
+  /** Custom colour per muscle (overrides `status`) */
+  fill?: (k: MuscleKey) => string;
+  /** Muscles drawn with a thin white outline (e.g. "where you should feel it") */
+  outline?: (k: MuscleKey) => boolean;
+  width?: number;
+}) {
   const list = view === 'front' ? MUSCLES_FRONT : MUSCLES_BACK;
   // Draw the selected muscle last so its outline sits on top.
   const ordered = [...list.filter(([k]) => k !== selected), ...list.filter(([k]) => k === selected)];
@@ -49,13 +59,14 @@ export function BodyMap({ view, selected, onSelect, status, width = 170 }: { vie
       {ordered.map(([k, polys], i) =>
         polys.map((points, j) => {
           const sel = k === selected;
+          const out = !sel && !!k && !!outline?.(k);
           return (
             <Polygon
               key={`${view}-${k ?? 'x'}-${i}-${j}`}
               points={points}
-              fill={k ? STATUS_COLOR[status(k)] : C.border}
-              stroke={sel ? '#ffffff' : '#000000'}
-              strokeWidth={sel ? 1.2 : 0.5}
+              fill={k ? (fill ? fill(k) : status ? STATUS_COLOR[status(k)] : C.border) : C.border}
+              stroke={sel ? '#ffffff' : out ? '#d8dcd4' : '#000000'}
+              strokeWidth={sel ? 1.2 : out ? 0.8 : 0.5}
               strokeLinejoin="round"
               onPress={k ? () => onSelect(k) : undefined}
             />
@@ -137,6 +148,22 @@ export function TrendChart({ series, visible }: { series: TrendSeries; visible: 
       {[0, mid, n].filter((v, i, a) => a.indexOf(v) === i).map((i) => (
         <SvgText key={i} x={X(i)} y={182} fill={C.dim} textAnchor="middle" fontFamily={MONO_MED} fontSize={10}>{`S${i + 1}`}</SvgText>
       ))}
+    </Svg>
+  );
+}
+
+/** Tiny line of weekly values (oldest first); zeros are gaps. */
+export function Sparkline({ values, width = 300, height = 56, color = C.lime }: { values: number[]; width?: number; height?: number; color?: string }) {
+  const pts = values.map((v, i) => ({ v, i })).filter((p) => p.v > 0);
+  if (pts.length < 1) return <View style={{ height }} />;
+  const mn = Math.min(...pts.map((p) => p.v)), mx = Math.max(...pts.map((p) => p.v));
+  const span = mx - mn || 1;
+  const X = (i: number) => 6 + (i * (width - 12)) / Math.max(1, values.length - 1);
+  const Y = (v: number) => height - 8 - ((v - mn) / span) * (height - 16);
+  return (
+    <Svg width={width} height={height}>
+      {pts.length > 1 && <Polyline points={pts.map((p) => `${X(p.i)},${Y(p.v)}`).join(' ')} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" />}
+      {pts.map((p) => <Circle key={p.i} cx={X(p.i)} cy={Y(p.v)} r={p.i === values.length - 1 ? 4 : 2.5} fill={color} />)}
     </Svg>
   );
 }

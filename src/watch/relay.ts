@@ -1,4 +1,5 @@
 import type { Exercise, Session, SetLog } from '../domain/types';
+import { estimateMinutes } from '../engines/generator';
 
 /** Connection to the watch relay (server/), shared by the pairing screen and the sync hook. */
 export interface WatchLink {
@@ -43,6 +44,9 @@ export const health = (l: WatchLink) => call<{ ok: boolean }>(l, 'GET', '/health
 export function sessionPayload(s: Session, ex: Record<string, Exercise>, settings: { restSec: number; hrThreshold: number }) {
   return {
     id: s.id,
+    startedAt: s.startedAt,
+    /** Planned length (s) for the time-left estimate before there is a real pace */
+    plannedSec: estimateMinutes(s.blocks, ex) * 60,
     restSec: settings.restSec,
     hrThreshold: settings.hrThreshold,
     doneQis: s.sets.map((l) => l.qi),
@@ -61,3 +65,17 @@ export const deleteSession = (l: WatchLink) => call(l, 'DELETE', `/v1/${l.code}/
 export const getSets = (l: WatchLink, since: number) =>
   call<{ sessionId: string | null; seq: number; sets: (SetLog & { seq: number })[] }>(l, 'GET', `/v1/${l.code}/sets?since=${since}`);
 export const getLive = (l: WatchLink) => call<{ live: WatchLive | null }>(l, 'GET', `/v1/${l.code}/live`);
+
+export const DAILY_KEYS = ['steps', 'deepSleepMin', 'sleepMin', 'restingHr', 'remMin', 'lightMin', 'awakeMin', 'sleepScore', 'stressAvg', 'nightStress', 'pai'] as const;
+export type WatchDaily = Partial<Record<(typeof DAILY_KEYS)[number], number>> & { at?: number };
+export const getDaily = (l: WatchLink) => call<{ days: Record<string, WatchDaily> }>(l, 'GET', `/v1/${l.code}/daily`);
+
+/** Watch values for a day as a DailyActivity patch (HRV and manual fields the watch lacks are left untouched). */
+export function dailyToActivity(date: string, d: WatchDaily) {
+  const out: { date: string } & WatchDaily = { date };
+  for (const k of DAILY_KEYS) {
+    const v = d[k];
+    if (typeof v === 'number' && v > 0) out[k] = v;
+  }
+  return Object.keys(out).length > 1 ? out : null;
+}

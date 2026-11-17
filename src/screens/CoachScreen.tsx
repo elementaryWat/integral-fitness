@@ -1,18 +1,22 @@
 import { useMemo, useState } from 'react';
-import { Alert, Image, Pressable, View } from 'react-native';
+import { Alert, Pressable, View } from 'react-native';
 import { TrendChart, type TrendKey } from '../components/charts';
+import { Engine8020Card } from '../components/Balance';
+import { PhysiqueCard } from '../components/PhysiqueCard';
 import { Screen } from '../components/Screen';
 import { fmtSigned } from '../data';
 import { addDays, shortDay } from '../domain/dates';
 import { muscleName, type MuscleKey } from '../domain/muscles';
+import { AiRequestError, coachReview } from '../ai/api';
+import type { WeeklyReview } from '../engines/coachRules';
 import { weeklyReview } from '../engines/coachRules';
+import type { TrendSeries } from '../engines/trends';
 import { weeklyTrends } from '../engines/trends';
 import { useNav } from '../navigation';
-import { photoUri } from '../photos';
 import { useStore } from '../store';
 import { useDerived } from '../store/derived';
 import { C, body, cond, em, mono } from '../theme';
-import { Card, Empty, Eyebrow, GhostButton, Placeholder, ScreenHeader, T } from '../ui';
+import { Card, Empty, Eyebrow, GhostButton, PrimaryButton, ScreenHeader, T } from '../ui';
 
 const SERIES: [TrendKey, string, string][] = [
   ['f', 'FUERZA REL.', C.lime],
@@ -22,12 +26,39 @@ const SERIES: [TrendKey, string, string][] = [
 ];
 const TONE = { fatiga: C.coral, rezagado: C.cyan, ok: C.lime } as const;
 
+function reviewBody(review: WeeklyReview) {
+  return {
+    weekOf: review.weekOf,
+    weekNumber: review.weekNumber,
+    headline: review.headline,
+    summary: review.summary,
+    signals: review.signals,
+    proposals: review.proposals,
+  };
+}
+
+function trendStats(trends: TrendSeries, goal: string | undefined, targetRateKgWk: number | undefined, weightKg: number, fatPct: number | undefined) {
+  const n = 8;
+  return {
+    weeks: trends.weeks.slice(-n),
+    fuerza: trends.f.slice(-n),
+    musculo: trends.m.slice(-n),
+    grasa: trends.g.slice(-n),
+    balanceKcal: trends.b.slice(-n),
+    goal: goal ?? null,
+    targetRateKgWk: targetRateKgWk ?? null,
+    weightKg,
+    fatPct: fatPct ?? null,
+  };
+}
+
 export function CoachScreen() {
   const s = useStore();
   const d = useDerived();
   const nav = useNav();
   const [visible, setVisible] = useState<Record<TrendKey, boolean>>({ f: true, m: true, g: true, b: true });
   const [rejected, setRejected] = useState<string[]>([]);
+  const [busy, setBusy] = useState<'review' | 'photos' | null>(null);
 
   const review = useMemo(
     () => weeklyReview({ today: d.today, profile: d.profile, weightKg: d.weight, states: d.states, sessions: d.all, ex: d.ex, weighIns: s.weighIns, bodyComps: s.bodyComps, perimeters: s.perimeters, foods: s.foods, coach: s.coach }),
@@ -45,9 +76,6 @@ export function CoachScreen() {
 
   const applied = s.coach.appliedWeekOf === review.weekOf;
   const accepted = review.proposals.filter((p) => !rejected.includes(p.id));
-  const fronts = s.photos.filter((p) => p.view === 'frente').sort((a, b) => (a.date < b.date ? -1 : 1));
-  const first = fronts[0];
-  const last = fronts.length > 1 ? fronts.at(-1) : undefined;
 
   const activeAdjustments = [
     s.coach.kcalOffset ? `${fmtSigned(s.coach.kcalOffset)} kcal/día` : null,
@@ -56,11 +84,43 @@ export function CoachScreen() {
     s.coach.deloadWeekOf ? `descarga ${shortDay(s.coach.deloadWeekOf)}` : null,
   ].filter((x): x is string => !!x);
 
+  const ai = s.coach.aiReview?.[review.weekOf];
+  // What the AI review is based on: when any of these change, offer to regenerate it.
+  const from = addDays(d.today, -6);
+  const basis = [
+    d.weight.toFixed(1),
+    d.fatPct?.toFixed(1) ?? '-',
+    s.sessions.filter((x) => x.date >= from).length,
+    s.foods.filter((f) => f.date >= from).length,
+    s.weighIns.filter((w) => w.date >= from).length,
+  ].join('|');
+  const outdated = !!ai && ai.basis !== basis;
+  const ago = ai ? Math.max(0, Math.round((Date.now() - ai.at) / 60000)) : 0;
+  const agoText = ago < 60 ? `HACE ${ago} MIN` : ago < 60 * 24 ? `HACE ${Math.round(ago / 60)} H` : `HACE ${Math.round(ago / 1440)} D`;
+
   const reset = () =>
     Alert.alert('Borrar todos los datos', 'Se eliminan perfil, sesiones, medidas, comidas y ajustes. No se puede deshacer.', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Borrar', style: 'destructive', onPress: s.reset },
     ]);
+
+  const sendReview = async (photos?: [string, string]) => {
+    setBusy(photos ? 'photos' : 'review');
+    try {
+      const res = await coachReview(
+        s.settings.watch,
+        reviewBody(review),
+        trendStats(trends, d.profile.goal, d.profile.targetRateKgWk, d.weight, d.fatPct),
+        photos,
+      );
+      // A plain regenerate keeps the last photo note (photos are only sent on request).
+      s.setAiReview(review.weekOf, { ...res, photoNote: res.photoNote ?? (photos ? null : ai?.photoNote ?? null), at: Date.now(), basis });
+    } catch (e) {
+      Alert.alert('IA', e instanceof AiRequestError ? e.message : 'No se pudo completar la revisión.');
+    } finally {
+      setBusy(null);
+    }
+  };
 
   return (
     <Screen>
@@ -84,10 +144,39 @@ export function CoachScreen() {
       </Card>
 
       <View style={{ backgroundColor: C.text, borderRadius: 20, padding: 18, gap: 10 }}>
-        <T style={[mono(10), { letterSpacing: em(10, 0.12), color: C.bg }]}>RESUMEN</T>
-        <T style={[cond(26, 800, 1.1), { color: C.bg, textTransform: 'uppercase' }]}>{review.headline}</T>
-        <T style={[body(14, 500, 1.45), { color: C.bg }]}>{review.summary}</T>
+        <T style={[mono(10), { letterSpacing: em(10, 0.12), color: C.bg }]}>{ai ? 'RESUMEN · IA' : 'RESUMEN'}</T>
+        <T style={[cond(26, 800, 1.1), { color: C.bg, textTransform: 'uppercase' }]}>{ai ? ai.headline : review.headline}</T>
+        <T style={[body(14, 500, 1.45), { color: C.bg }]}>{ai ? ai.summary : review.summary}</T>
       </View>
+
+      {ai && (ai.wins.length > 0 || ai.watch.length > 0) ? (
+        <Card>
+          {ai.wins.length > 0 ? (
+            <View style={{ gap: 6 }}>
+              <Eyebrow color={C.lime}>LO QUE VA BIEN</Eyebrow>
+              {ai.wins.map((line, i) => <T key={`win-${i}`} style={[body(14, 500, 1.4)]}>{line}</T>)}
+            </View>
+          ) : null}
+          {ai.watch.length > 0 ? (
+            <View style={{ gap: 6 }}>
+              <Eyebrow color={C.amber}>A VIGILAR</Eyebrow>
+              {ai.watch.map((line, i) => <T key={`watch-${i}`} style={[body(14, 500, 1.4)]}>{line}</T>)}
+            </View>
+          ) : null}
+        </Card>
+      ) : null}
+      {!ai ? <PrimaryButton label={busy === 'review' ? 'Revisando…' : 'Revisión con IA'} onPress={() => { sendReview(); }} disabled={busy !== null} /> : (
+        <View style={{ gap: 6 }}>
+          <T style={[mono(10, 500, 1.4), { color: outdated ? C.amber : C.dim, paddingHorizontal: 2 }]}>
+            {outdated ? `GENERADO ${agoText} · TUS DATOS CAMBIARON DESDE ENTONCES` : `GENERADO ${agoText} CON TUS DATOS ACTUALES`}
+          </T>
+          {outdated ? (
+            <PrimaryButton label={busy === 'review' ? 'Regenerando…' : '↻ Regenerar con datos actuales'} onPress={() => { sendReview(); }} disabled={busy !== null} height={44} />
+          ) : (
+            <GhostButton label={busy === 'review' ? 'REGENERANDO…' : '↻ REGENERAR RESUMEN'} onPress={() => { if (!busy) sendReview(); }} height={40} />
+          )}
+        </View>
+      )}
 
       <Card gap={0}>
         <Eyebrow style={{ paddingBottom: 4 }}>SEÑALES DETECTADAS</Eyebrow>
@@ -106,26 +195,7 @@ export function CoachScreen() {
         })}
       </Card>
 
-      <Card gap={10}>
-        <Eyebrow>COMPARATIVA DE FOTOS · FRENTE</Eyebrow>
-        <View style={{ flexDirection: 'row', gap: 6 }}>
-          {[first, last].map((p, i) => (
-            <View key={i} style={{ flex: 1 }}>
-              {p ? (
-                <View>
-                  <Image source={{ uri: photoUri(p) }} style={{ height: 170, borderRadius: 12, borderWidth: i ? 1 : 0, borderColor: C.lime, backgroundColor: C.chip }} resizeMode="cover" />
-                  <T style={[mono(10, 500), { color: C.muted, paddingTop: 6 }]}>{shortDay(p.date)}{p.tags.weightKg ? ` · ${String(p.tags.weightKg).replace('.', ',')} kg` : ''}</T>
-                </View>
-              ) : (
-                <Placeholder label={i ? 'última' : 'primera'} height={170} radius={12} highlight={!!i} />
-              )}
-            </View>
-          ))}
-        </View>
-        <T style={[body(13, 400, 1.4), { color: C.soft }]}>
-          {last ? 'Análisis visual con IA en la Fase 2. Por ahora, compara misma luz y postura.' : 'Añade fotos de frente en Cuerpo para comparar semanas.'}
-        </T>
-      </Card>
+      <PhysiqueCard review={review} />
 
       <Card gap={8}>
         <Eyebrow style={{ paddingBottom: 4 }}>AJUSTES PROPUESTOS · PRÓXIMA SEMANA</Eyebrow>
@@ -167,7 +237,7 @@ export function CoachScreen() {
         )}
       </Card>
 
-      <T style={[mono(10, 500, 1.4), { color: C.dim, textAlign: 'center' }]}>REVISIÓN BASADA EN REGLAS. EL TEXTO DEL COACH CON IA LLEGA EN LA FASE 2.</T>
+      <Engine8020Card />
       <GhostButton label="EDITAR PERFIL Y OBJETIVO" onPress={() => nav.navigate('ProfileEdit')} />
       <GhostButton label="BORRAR TODOS LOS DATOS" onPress={reset} color={C.coral} />
     </Screen>

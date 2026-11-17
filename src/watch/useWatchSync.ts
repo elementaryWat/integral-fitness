@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useUi } from '../navigation';
 import { useStore } from '../store';
-import { deleteSession, getLive, getSets, linkReady, putSession, sessionPayload } from './relay';
+import { dailyToActivity, deleteSession, getDaily, getLive, getSets, linkReady, putSession, sessionPayload } from './relay';
 
 const POLL_MS = 3000;
 
@@ -49,6 +49,32 @@ export function useWatchSync() {
     // The payload only depends on these fields; `link` identity changes are covered by its parts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, link.serverUrl, link.code, session?.id, doneKey, restSec, hrThreshold]);
+
+  // Daily wearable metrics (steps, sleep, resting HR) sent by the watch: on launch and every minute.
+  useEffect(() => {
+    if (!ready) return;
+    let stop = false;
+    const pull = async () => {
+      try {
+        const { days } = await getDaily(link);
+        if (stop) return;
+        const { setActivity } = useStore.getState();
+        for (const [date, d] of Object.entries(days)) {
+          const a = dailyToActivity(date, d);
+          if (a) setActivity(a);
+        }
+      } catch {
+        // Offline: the next pull catches up.
+      }
+    };
+    pull();
+    const id = setInterval(pull, 60000);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, link.serverUrl, link.code]);
 
   // Poll the watch's sets and live state during a session.
   useEffect(() => {

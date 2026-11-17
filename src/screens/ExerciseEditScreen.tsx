@@ -1,20 +1,45 @@
 import { useState } from 'react';
-import { Alert, View } from 'react-native';
+import { Alert, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { AiRequestError, draftExercise } from '../ai/api';
+import { exerciseFromDraft } from '../ai/logic';
+import { BodyMap } from '../components/charts';
 import { Screen } from '../components/Screen';
 import { DISCIPLINES, LOAD_MODE_LABEL, PATTERN_LABEL } from '../domain/catalog';
 import { uid } from '../domain/dates';
-import { MUSCLE_KEYS, muscleName, type MuscleKey } from '../domain/muscles';
-import type { Discipline, Exercise, LoadMode, Pattern, Plane, Region, Unit } from '../domain/types';
+import { MUSCLE_INFO, MUSCLE_KEYS, muscleName, type MuscleKey } from '../domain/muscles';
+import { TECHNIQUE, techniqueOf } from '../domain/technique';
+import type { Discipline, Exercise, ExerciseTechnique, LoadMode, Pattern, Plane, Region, Unit } from '../domain/types';
 import type { RootStackParamList } from '../navigation';
 import { useStore } from '../store';
-import { C, body, mono } from '../theme';
-import { Card, ChipSelect, Field, GhostButton, PrimaryButton, SheetHeader, T, num } from '../ui';
+import { C, WORK_NONE, WORK_PRIMARY, WORK_SECONDARY, body, mono } from '../theme';
+import { Card, ChipSelect, Eyebrow, Field, GhostButton, PrimaryButton, SheetHeader, T, num } from '../ui';
 
 const PATTERNS = Object.keys(PATTERN_LABEL) as Pattern[];
 const LOAD_MODES = Object.keys(LOAD_MODE_LABEL) as LoadMode[];
 const UNITS: { value: Unit; label: string }[] = [{ value: 'reps', label: 'Reps' }, { value: 's', label: 'Segundos' }, { value: 'min', label: 'Minutos' }];
 const MUSCLES = MUSCLE_KEYS.map((k) => ({ value: k, label: muscleName(k) }));
+
+const toLines = (s: string) => s.split('\n').map((x) => x.replace(/^\s*[-·•\d.)]+\s*/, '').trim()).filter(Boolean);
+const same = (a?: ExerciseTechnique, b?: ExerciseTechnique) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/** Multiline field: one cue per line. */
+function Lines({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <View style={{ gap: 6 }}>
+      <Eyebrow spacing={0.08}>{label}</Eyebrow>
+      <TextInput
+        value={value}
+        onChangeText={onChange}
+        multiline
+        placeholder={placeholder}
+        placeholderTextColor={C.dim}
+        allowFontScaling={false}
+        style={[body(14, 400, 1.4), { color: C.text, backgroundColor: C.chip, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, minHeight: 64, textAlignVertical: 'top' }]}
+      />
+    </View>
+  );
+}
 
 const regionFor = (p: Pattern): Region => (p === 'pierna' || p === 'bisagra' || p === 'aerobico' ? 'inferior' : p === 'core' ? 'core' : 'superior');
 
@@ -37,6 +62,15 @@ export function ExerciseEditScreen({ route, navigation }: NativeStackScreenProps
   const [lo, setLo] = useState(String(existing?.repRange[0] ?? 8));
   const [hi, setHi] = useState(String(existing?.repRange[1] ?? 12));
   const [levers, setLevers] = useState(existing?.levers?.join(', ') ?? '');
+  const [legImpact, setLegImpact] = useState<'bajo' | 'alto'>(existing?.legImpact ?? 'bajo');
+  const initialTech = existing ? techniqueOf(existing) : undefined;
+  const [tSetup, setTSetup] = useState(initialTech?.setup.join('\n') ?? '');
+  const [tSteps, setTSteps] = useState(initialTech?.steps.join('\n') ?? '');
+  const [tMistakes, setTMistakes] = useState(initialTech?.mistakes.join('\n') ?? '');
+  const [tTip, setTTip] = useState(initialTech?.tip ?? '');
+  const [tFeel, setTFeel] = useState<MuscleKey[]>(initialTech?.feel ?? []);
+  const [describe, setDescribe] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
 
   const usesPlane = pattern === 'empuje' || pattern === 'traccion';
   const loadable = loadMode === 'peso' || loadMode === 'lastre';
@@ -46,19 +80,27 @@ export function ExerciseEditScreen({ route, navigation }: NativeStackScreenProps
   const save = () => {
     if (!valid) return;
     const leverList = levers.split(',').map((x) => x.trim()).filter(Boolean);
+    const steps = toLines(tSteps);
+    const written: ExerciseTechnique | undefined = steps.length
+      ? { setup: toLines(tSetup), steps, mistakes: toLines(tMistakes), feel: (tFeel.length ? tFeel : primary).filter((m) => primary.includes(m) || secondary.includes(m) || tFeel.includes(m)), tip: tTip.trim() || undefined }
+      : undefined;
+    // Built-ins keep following the catalog text unless the user actually changed it.
+    const builtIn = existing ? TECHNIQUE[existing.id] : undefined;
+    const technique = written && builtIn && same(written, builtIn) ? undefined : written;
     const e: Exercise = {
       id: existing?.id ?? uid(),
       name: name.trim(),
       discipline, loadMode, pattern, unit,
       plane: usesPlane ? plane ?? 'horizontal' : undefined,
-      region: regionFor(pattern),
+      region: primary[0] ? MUSCLE_INFO[primary[0]].region : regionFor(pattern),
       primary, secondary: secondary.filter((m) => !primary.includes(m)),
       step: loadMode === 'palanca' ? 1 : loadable ? num(step) ?? 0 : 0,
       defaultLoad: loadMode === 'palanca' ? 0 : loadable ? num(load) ?? 0 : 0,
       defaultReps: num(reps)!,
       repRange: [num(lo)!, num(hi)!],
       levers: loadMode === 'palanca' ? (leverList.length ? leverList : ['Nivel 1', 'Nivel 2', 'Nivel 3']) : undefined,
-      legImpact: discipline === 'Cardio' ? 'bajo' : undefined,
+      legImpact: discipline === 'Cardio' ? legImpact : undefined,
+      technique,
       archived: existing?.archived,
       custom: existing ? existing.custom : true,
     };
@@ -74,9 +116,49 @@ export function ExerciseEditScreen({ route, navigation }: NativeStackScreenProps
     ]);
   };
 
+  const fillWithAi = async () => {
+    const text = describe.trim();
+    if (text.length < 3 || aiBusy) return;
+    setAiBusy(true);
+    try {
+      const raw = await draftExercise(useStore.getState().settings.watch, text);
+      const e = exerciseFromDraft(raw);
+      setName(e.name);
+      setDiscipline(e.discipline);
+      setLoadMode(e.loadMode);
+      setPattern(e.pattern);
+      setPlane(e.plane ?? (e.pattern === 'empuje' || e.pattern === 'traccion' ? 'horizontal' : undefined));
+      setUnit(e.unit);
+      setPrimary(e.primary);
+      setSecondary(e.secondary);
+      setStep(String(e.step));
+      setLoad(String(e.defaultLoad));
+      setReps(String(e.defaultReps));
+      setLo(String(e.repRange[0]));
+      setHi(String(e.repRange[1]));
+      setLevers(e.levers?.join(', ') ?? '');
+      setLegImpact(e.legImpact ?? 'bajo');
+      if (e.technique) {
+        setTSetup(e.technique.setup.join('\n'));
+        setTSteps(e.technique.steps.join('\n'));
+        setTMistakes(e.technique.mistakes.join('\n'));
+        setTTip(e.technique.tip ?? '');
+        setTFeel(e.technique.feel);
+      }
+    } catch (err) {
+      Alert.alert('IA', err instanceof AiRequestError ? err.message : 'No se pudo rellenar el ejercicio.');
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   return (
     <Screen sheet>
       <SheetHeader eyebrow={existing ? 'EDITAR EJERCICIO' : 'NUEVO EJERCICIO'} title={name.trim() || 'Ejercicio'} onClose={() => navigation.goBack()} />
+      <Card>
+        <Field label="DESCRIBE EL EJERCICIO" value={describe} onChange={setDescribe} keyboard="default" placeholder="Remo a una mano con mancuerna, de pie" />
+        <PrimaryButton label={aiBusy ? 'Rellenando…' : 'Rellenar con IA'} onPress={() => { fillWithAi(); }} disabled={describe.trim().length < 3 || aiBusy} />
+      </Card>
       <Card>
         <Field label="NOMBRE" value={name} onChange={setName} keyboard="default" placeholder="Remo con mancuerna" />
         <ChipSelect label="DISCIPLINA" options={DISCIPLINES.map((d) => ({ value: d, label: d }))} selected={[discipline]} onToggle={setDiscipline} />
@@ -94,6 +176,7 @@ export function ExerciseEditScreen({ route, navigation }: NativeStackScreenProps
           </View>
         )}
         {loadMode === 'palanca' && <Field label="PROGRESIONES (DE FÁCIL A DIFÍCIL, SEPARADAS POR COMAS)" value={levers} onChange={setLevers} keyboard="default" placeholder="Tuck, Una pierna, Completo" />}
+        {discipline === 'Cardio' && <ChipSelect label="IMPACTO EN PIERNAS" options={[{ value: 'bajo' as const, label: 'Bajo' }, { value: 'alto' as const, label: 'Alto' }]} selected={[legImpact]} onToggle={setLegImpact} />}
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <Field flex label="OBJETIVO" value={reps} onChange={setReps} keyboard="number-pad" suffix={unit.toUpperCase()} />
           <Field flex label="RANGO MÍN." value={lo} onChange={setLo} keyboard="number-pad" />
@@ -105,10 +188,28 @@ export function ExerciseEditScreen({ route, navigation }: NativeStackScreenProps
         <Card>
           <ChipSelect label="MÚSCULOS PRINCIPALES (1 SERIE)" options={MUSCLES} selected={primary} onToggle={(k) => toggle(primary, setPrimary, k)} />
           <ChipSelect label="SECUNDARIOS (0,5 SERIES)" options={MUSCLES.filter((m) => !primary.includes(m.value))} selected={secondary} onToggle={(k) => toggle(secondary, setSecondary, k)} color={C.cyan} />
+          {primary.length + secondary.length > 0 && (
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around', paddingTop: 4 }}>
+              {(['front', 'back'] as const).map((v) => (
+                <View key={v} style={{ alignItems: 'center', gap: 4 }}>
+                  <BodyMap view={v} width={110} onSelect={(k) => toggle(primary, setPrimary, k)} fill={(k) => (primary.includes(k) ? WORK_PRIMARY : secondary.includes(k) ? WORK_SECONDARY : WORK_NONE)} />
+                  <T style={[mono(9, 500), { color: C.dim }]}>{v === 'front' ? 'FRENTE' : 'ESPALDA'}</T>
+                </View>
+              ))}
+            </View>
+          )}
         </Card>
       )}
 
-      <T style={[mono(10, 500, 1.4), { color: C.dim }]}>ASISTENTE IA PARA CLASIFICAR EJERCICIOS · PRÓXIMAMENTE (FASE 2)</T>
+      <Card>
+        <Eyebrow color={C.lime}>CÓMO SE HACE</Eyebrow>
+        <T style={[body(12, 400, 1.4), { color: C.muted }]}>Una clave por línea. "Rellenar con IA" la escribe por ti; puedes ajustarla.</T>
+        <Lines label="PREPARACIÓN" value={tSetup} onChange={setTSetup} placeholder="Pies a la anchura de la cadera…" />
+        <Lines label="EJECUCIÓN" value={tSteps} onChange={setTSteps} placeholder={'Baja en 2–3 s…\nSube empujando…'} />
+        <Lines label="ERRORES COMUNES" value={tMistakes} onChange={setTMistakes} placeholder="Rebotar abajo → pausa 1 s" />
+        <Field label="CONSEJO (OPCIONAL)" value={tTip} onChange={setTTip} keyboard="default" />
+      </Card>
+
       <PrimaryButton label="Guardar" onPress={save} disabled={!valid} />
       {existing && <GhostButton label={existing.archived ? 'RESTAURAR' : 'ARCHIVAR'} onPress={archive} color={existing.archived ? C.lime : C.coral} />}
       {!valid && <T style={[body(12, 400), { color: C.muted, textAlign: 'center' }]}>Necesita nombre, al menos un músculo principal y rango de repeticiones.</T>}

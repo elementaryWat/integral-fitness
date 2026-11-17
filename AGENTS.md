@@ -2,6 +2,10 @@
 
 Lee primero **`docs/PROGRESO.md`**. Ahí están el estado del proyecto, los datos de despliegue y la lista ordenada de lo que falta en la Fase 2 (IA con OpenAI).
 
+La lista de funcionalidades con su estado está en **`docs/FUNCIONALIDADES.md`**: actualízala cuando termines o cambies una.
+
+La hoja de ruta (SideStore, usuarios de prueba, login, datos multiusuario, modo calistenia, sobrecarga progresiva) está en **`docs/ROADMAP.md`**, con el orden global sugerido al final.
+
 Convenciones:
 - Todo el texto visible de la app va en **español**. Respeta la estética actual: fondo negro, acento lima `#c8f53c` y los componentes de `src/ui.tsx` y `src/theme.ts`.
 - Lógica de negocio en funciones puras (`src/engines/`, `src/ai/logic.ts`) con tests de Jest. Las pantallas solo componen.

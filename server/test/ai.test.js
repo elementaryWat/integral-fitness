@@ -89,3 +89,65 @@ test('coach review sends both photos only when two are provided', async () => {
     assert.equal(client.calls[1].input[0].content.filter((c) => c.type === 'input_image').length, 2);
   });
 });
+
+test('accepts image/jpg and whitespace in base64 (what iOS sends)', async () => {
+  const client = fakeClient({ food_scan: scan });
+  await withServer(client, async (call) => {
+    const jpg = 'data:image/jpg;base64,' + Buffer.from('fake-jpeg').toString('base64').replace(/(.{4})/, '$1\n');
+    const r = await call('POST', '/v1/ABC123/ai/scan', { image: jpg });
+    assert.equal(r.status, 200);
+    assert.match(client.calls[0].input[0].content[1].image_url, /^data:image\/jpeg;base64,[^\s]+$/);
+  });
+});
+
+test('builds a routine limited to the given catalog ids', async () => {
+  const client = fakeClient({ ai_routine: { name: 'Torso', rationale: 'x', blocks: [{ exerciseIds: ['bench', 'ghost'], rounds: 3, why: '' }, { exerciseIds: ['ghost'], rounds: 2, why: '' }] } });
+  await withServer(client, async (call) => {
+    assert.equal((await call('POST', '/v1/ABC123/ai/routine', { catalog: [{ id: 'bench' }] })).status, 400);
+    const r = await call('POST', '/v1/ABC123/ai/routine', { groups: ['pecho'], minutes: 45, catalog: [{ id: 'bench' }, { id: 'row' }] });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.blocks.map((b) => b.exerciseIds), [['bench']]);
+    assert.deepEqual(client.calls[0].text.format.schema.properties.blocks.items.properties.exerciseIds.items.enum, ['bench', 'row']);
+  });
+});
+
+test('exercise draft asks for technique cues with valid muscle keys', async () => {
+  const technique = { setup: ['a'], steps: ['b', 'c'], mistakes: ['d → e'], feel: ['pecho'], tip: null };
+  const client = fakeClient({ exercise_draft: { name: 'Press', technique } });
+  await withServer(client, async (call) => {
+    const r = await call('POST', '/v1/ABC123/ai/exercise', { text: 'press inclinado' });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.technique, technique);
+    const schema = client.calls[0].text.format.schema;
+    assert.ok(schema.required.includes('technique'));
+    assert.ok(schema.properties.technique.properties.feel.items.enum.includes('glut'));
+  });
+});
+
+test('food from text uses the scan schema without an image and validates the text', async () => {
+  const client = fakeClient({ food_scan: scan });
+  await withServer(client, async (call) => {
+    assert.equal((await call('POST', '/v1/ABC123/ai/food', { text: 'x' })).status, 400);
+    const r = await call('POST', '/v1/ABC123/ai/food', { text: '200 g de pollo a la plancha con arroz' });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.items[0].name, 'Pechuga');
+    const req = client.calls[0];
+    assert.deepEqual(req.input[0].content.map((c) => c.type), ['input_text']);
+    assert.match(req.input[0].content[0].text, /pollo a la plancha/);
+    assert.match(req.instructions ?? JSON.stringify(req), /Conviertes lo que alguien escribe/);
+  });
+});
+
+test('physique review sends labelled photos and the data, and needs at least one photo', async () => {
+  const phys = { headline: 'Base sólida', observations: ['x'], strengths: ['y'], priorities: ['z'], bodyFat: { low: 20, high: 24, note: 'n' }, dataCheck: 'd', comparison: null, actions: ['a'] };
+  const client = fakeClient({ physique_review: phys });
+  await withServer(client, async (call) => {
+    assert.equal((await call('POST', '/v1/ABC123/ai/physique', { photos: [] })).status, 400);
+    const r = await call('POST', '/v1/ABC123/ai/physique', { photos: [{ label: 'Frente 14 nov', image: IMG }, { label: 'Perfil 14 nov', image: IMG }], data: { weightKg: 103 } });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.headline, 'Base sólida');
+    const types = client.calls[0].input[0].content.map((c) => c.type);
+    assert.deepEqual(types, ['input_text', 'input_text', 'input_image', 'input_text', 'input_image']);
+    assert.match(client.calls[0].input[0].content[0].text, /103/);
+  });
+});

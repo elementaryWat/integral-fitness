@@ -21,7 +21,7 @@ function json(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-function readBody(req, limit = 10_000) {
+function readBody(req, limit = 10_000, raw = false) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
@@ -32,7 +32,10 @@ function readBody(req, limit = 10_000) {
         req.destroy();
       } else chunks.push(c);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('end', () => {
+      const buf = Buffer.concat(chunks);
+      resolve(raw ? buf : buf.toString('utf8'));
+    });
     req.on('error', reject);
   });
 }
@@ -49,13 +52,69 @@ function toCsv(list) {
   return [cols.join(','), ...list.map((e) => cols.map((c) => cell(e[c])).join(','))].join('\n');
 }
 
-export function createApp({ store, baseCount = 0, adminToken = '' }) {
+/** Host de los estáticos de PostHog (array.js): eu.i.posthog.com → eu-assets.i.posthog.com. */
+export function assetsHost(host) {
+  return host.replace('.i.posthog.com', '-assets.i.posthog.com');
+}
+
+/**
+ * Reenvía /ingest/* a PostHog desde nuestro dominio, para que los bloqueadores
+ * de anuncios no corten las métricas.
+ */
+async function proxyPostHog(req, res, url, host) {
+  const rest = url.pathname.slice('/ingest'.length) || '/';
+  const base = rest.startsWith('/static/') ? assetsHost(host) : host;
+  const headers = {};
+  for (const h of ['content-type', 'user-agent', 'accept', 'accept-language', 'origin']) {
+    if (req.headers[h]) headers[h] = req.headers[h];
+  }
+  const fwd = req.headers['x-forwarded-for'];
+  const ip = (typeof fwd === 'string' && fwd.split(',')[0].trim()) || req.socket.remoteAddress;
+  if (ip) headers['x-forwarded-for'] = ip;
+  const hasBody = req.method !== 'GET' && req.method !== 'HEAD';
+  const upstream = await fetch(base + rest + url.search, {
+    method: req.method,
+    headers,
+    body: hasBody ? Buffer.from(await readBody(req, 5_000_000, true)) : undefined,
+  });
+  const out = { 'cache-control': upstream.headers.get('cache-control') ?? 'no-store' };
+  const type = upstream.headers.get('content-type');
+  if (type) out['content-type'] = type;
+  res.writeHead(upstream.status, out);
+  res.end(Buffer.from(await upstream.arrayBuffer()));
+}
+
+export function createApp({ store, baseCount = 0, adminToken = '', posthog = {} }) {
+  const phKey = posthog.key ?? '';
+  const phHost = (posthog.host ?? 'https://eu.i.posthog.com').replace(/\/+$/, '');
+  const phUiHost = phHost.replace('.i.posthog.com', '.posthog.com');
+  const configJs = `window.WREP_CONFIG=${JSON.stringify({
+    posthogKey: phKey,
+    posthogApiHost: '/ingest',
+    posthogUiHost: phUiHost,
+  })};`;
+
   return async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const path = url.pathname;
 
     try {
       if (path === '/health') return json(res, 200, { ok: true });
+
+      if (path === '/config.js') {
+        res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' });
+        return res.end(configJs);
+      }
+
+      if (path === '/ingest' || path.startsWith('/ingest/')) {
+        if (!phKey) return json(res, 404, { error: 'Analítica desactivada' });
+        try {
+          return await proxyPostHog(req, res, url, phHost);
+        } catch (err) {
+          console.error('PostHog proxy:', err.message);
+          return json(res, 502, { error: 'Analítica no disponible' });
+        }
+      }
 
       if (path === '/api/waitlist' && req.method === 'GET') {
         return json(res, 200, { count: baseCount + (await store.count()) });
@@ -125,6 +184,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     store: createStore(file),
     baseCount: Number(process.env.WAITLIST_BASE_COUNT ?? 0) || 0,
     adminToken: process.env.ADMIN_TOKEN ?? '',
+    posthog: { key: process.env.POSTHOG_KEY ?? '', host: process.env.POSTHOG_HOST || undefined },
   });
   const port = Number(process.env.PORT ?? 3000);
   createServer(app).listen(port, () => console.log(`Wrep landing en :${port} · lista en ${file}`));

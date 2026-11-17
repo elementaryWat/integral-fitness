@@ -12,6 +12,9 @@
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const fmt = (n) => Number(n).toLocaleString('es-ES');
   const $ = (id) => document.getElementById(id);
+  // Analítica (PostHog, ver analytics.js). Nunca enviamos el email.
+  const trackEvent = (event, props) => window.track && window.track(event, props);
+  const SLIDES = ['entreno', 'nutricion', 'coach'];
 
   /* ---------- Contador ---------- */
   function setCount(n) {
@@ -44,7 +47,11 @@
     clearInterval(timer);
     if (!reduced) timer = setInterval(() => show((slide + 1) % 3), 4500);
   }
-  dots.forEach((d, i) => d.addEventListener('click', () => { show(i); startAuto(); }));
+  dots.forEach((d, i) => d.addEventListener('click', () => {
+    show(i);
+    startAuto();
+    trackEvent('carousel_slide_selected', { slide: SLIDES[i] });
+  }));
   document.addEventListener('visibilitychange', () => (document.hidden ? clearInterval(timer) : startAuto()));
 
   // Deslizar con el dedo sobre el móvil
@@ -68,8 +75,9 @@
   let lastFocus = null;
   let pickTimer = null;
 
-  function openWith(plan) {
-    st = { plan, step: 0, ans: {}, sending: false };
+  function openWith(plan, source) {
+    st = { plan, source, step: 0, ans: {}, sending: false, done: false };
+    trackEvent('waitlist_opened', { plan, source });
     lastFocus = document.activeElement;
     emailInput.value = '';
     setEmailError('');
@@ -86,6 +94,9 @@
 
   function close() {
     clearTimeout(pickTimer);
+    if (st && !st.done) {
+      trackEvent('waitlist_abandoned', { plan: st.plan, source: st.source, step: st.step + 1, question: Q[st.step].id });
+    }
     overlay.hidden = true;
     document.body.style.overflow = '';
     if (lastFocus) lastFocus.focus();
@@ -145,6 +156,7 @@
     } else {
       st.ans[q.id] = v;
       render();
+      stepDone(q);
       clearTimeout(pickTimer);
       pickTimer = setTimeout(() => {
         st.step = Math.min(st.step + 1, Q.length - 1);
@@ -153,10 +165,18 @@
     }
   }
 
+  function stepDone(q) {
+    trackEvent('waitlist_step_completed', { plan: st.plan, step: Q.indexOf(q) + 1, question: q.id, answer: st.ans[q.id] });
+  }
+
   async function next() {
     const q = Q[st.step];
     if (q.id !== 'email') {
-      if (answered()) { st.step += 1; render(); }
+      if (answered()) {
+        if (q.multi) stepDone(q);
+        st.step += 1;
+        render();
+      }
       return;
     }
     const email = emailInput.value.trim();
@@ -171,6 +191,9 @@
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || 'No se pudo guardar. Inténtalo de nuevo.');
+      st.done = true;
+      const { goal, phone, watch, need } = st.ans;
+      trackEvent('waitlist_joined', { plan: st.plan, source: st.source, goal, phone, watch, need, existing: !!d.existing });
       setCount(d.count);
       $('position').textContent = `#${fmt(d.position)}`;
       $('done-text').textContent = st.plan === 'premium'
@@ -180,6 +203,7 @@
       $('done').hidden = false;
       $('done-close').focus();
     } catch (err) {
+      trackEvent('waitlist_error', { plan: st.plan, error: err.message });
       setEmailError(err.message === 'Failed to fetch' ? 'Sin conexión. Inténtalo de nuevo.' : err.message);
     } finally {
       st.sending = false;
@@ -187,7 +211,7 @@
     }
   }
 
-  document.querySelectorAll('[data-open]').forEach((b) => b.addEventListener('click', () => openWith(b.dataset.open)));
+  document.querySelectorAll('[data-open]').forEach((b) => b.addEventListener('click', () => openWith(b.dataset.open, b.dataset.source)));
   $('close').addEventListener('click', close);
   $('done-close').addEventListener('click', close);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });

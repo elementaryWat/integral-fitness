@@ -151,7 +151,7 @@ Cuando cambie algo, actualiza la marca y la fecha de la última columna (`AAAA-M
 | ✅ | Logo de tres barras (iOS, Android, reloj) | | |
 | 🧪 | Nombre "Wrep" en el iPhone, el reloj y la IA | Antes "Recomp"; bundle id y appId del reloj sin cambios | 2026-11-14 |
 | 🧪 | Splash screen con el logotipo WREP · FITNESS | `assets/brand/make_icons.py` genera iconos y splash | 2026-11-14 |
-| 🧪 | Landing web con lista de espera (encuesta de 4 preguntas + email) | `landing/`, servicio propio en Railway; falta desplegar y montar un Volume | 2026-11-17 |
+| 🧪 | Landing web con lista de espera (encuesta de 4 preguntas + email) y analítica con PostHog | `landing/`, servicio propio en Railway; falta desplegar, montar un Volume y poner `POSTHOG_KEY` | 2026-11-17 |
 
 ---
 

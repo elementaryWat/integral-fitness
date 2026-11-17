@@ -1,8 +1,8 @@
-// AI endpoints under /v1/:code/ai/*. Only pairing codes listed in AI_ACCESS_CODES may spend
+// AI endpoints under /v1/:code/ai/* (scan, food, exercise, coach, physique, routine, status). Only pairing codes listed in AI_ACCESS_CODES may spend
 // tokens, each with a daily quota. Images are forwarded to the model and never stored or logged.
 import { AiError } from './client.js';
-import { COACH_NARRATIVE, EXERCISE_DRAFT, FOOD_SCAN, routineFormat } from './schemas.js';
-import { COACH_SYSTEM, EXERCISE_SYSTEM, ROUTINE_SYSTEM, SCAN_SYSTEM } from './prompts.js';
+import { COACH_NARRATIVE, EXERCISE_DRAFT, FOOD_SCAN, PHYSIQUE, routineFormat } from './schemas.js';
+import { COACH_SYSTEM, EXERCISE_SYSTEM, FOOD_TEXT_SYSTEM, PHYSIQUE_SYSTEM, ROUTINE_SYSTEM, SCAN_SYSTEM } from './prompts.js';
 
 const IMAGE_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 
@@ -57,6 +57,12 @@ export async function handleAi({ action, code, body, ai, quota, codes }) {
       quota.take(code);
       return ai.structured({ system: SCAN_SYSTEM, format: FOOD_SCAN, content: [{ type: 'input_text', text: hint }, img] });
     }
+    case 'food': {
+      const text = String(body?.text ?? '').trim();
+      if (text.length < 3 || text.length > 500) throw new AiError(400, 'bad_text', 'Describe lo que comiste en 3–500 caracteres.');
+      quota.take(code);
+      return ai.structured({ system: FOOD_TEXT_SYSTEM, format: FOOD_SCAN, content: [{ type: 'input_text', text: `Comida: ${text}` }] });
+    }
     case 'exercise': {
       const text = String(body?.text ?? '').trim();
       if (text.length < 3 || text.length > 300) throw new AiError(400, 'bad_text', 'Describe el ejercicio en 3–300 caracteres.');
@@ -72,6 +78,15 @@ export async function handleAi({ action, code, body, ai, quota, codes }) {
       const content = [{ type: 'input_text', text: `Datos de la semana (JSON):\n${data}` }];
       if (parts.length === 2) content.push({ type: 'input_text', text: 'Foto de frente — primera semana:' }, parts[0], { type: 'input_text', text: 'Foto de frente — última semana:' }, parts[1]);
       return ai.structured({ system: COACH_SYSTEM, format: COACH_NARRATIVE, content });
+    }
+    case 'physique': {
+      // Up to 4 labelled photos (latest front/side/back + an older front). Forwarded, never stored or logged.
+      const list = Array.isArray(body?.photos) ? body.photos.slice(0, 4) : [];
+      if (!list.length) throw new AiError(400, 'no_photos', 'Falta al menos una foto.');
+      const parts = list.map((p) => [{ type: 'input_text', text: String(p?.label ?? 'Foto').slice(0, 80) + ':' }, image(p?.image, 'high')]).flat();
+      const data = JSON.stringify(body.data ?? {}).slice(0, 40000);
+      quota.take(code);
+      return ai.structured({ system: PHYSIQUE_SYSTEM, format: PHYSIQUE, content: [{ type: 'input_text', text: `Datos actuales (JSON):\n${data}` }, ...parts] });
     }
     case 'routine': {
       const catalog = Array.isArray(body?.catalog) ? body.catalog.filter((e) => e && typeof e.id === 'string').slice(0, 120) : [];

@@ -52,6 +52,13 @@ export const EXERCISE_DRAFT = {
     levers: nullable({ type: 'array', items: str }),
     legImpact: nullable({ type: 'string', enum: ['bajo', 'alto'] }),
     notes: str,
+    technique: obj({
+      setup: { type: 'array', items: str },
+      steps: { type: 'array', items: str },
+      mistakes: { type: 'array', items: str },
+      feel: { type: 'array', items: { type: 'string', enum: MUSCLES } },
+      tip: nullable(str),
+    }),
   }),
 };
 
@@ -63,6 +70,21 @@ export const COACH_NARRATIVE = {
     wins: { type: 'array', items: str },
     watch: { type: 'array', items: str },
     photoNote: nullable(str),
+  }),
+};
+
+/** Physique read from progress photos, contrasted with the user's data. */
+export const PHYSIQUE = {
+  name: 'physique_review',
+  schema: obj({
+    headline: str,
+    observations: { type: 'array', items: str },
+    strengths: { type: 'array', items: str },
+    priorities: { type: 'array', items: str },
+    bodyFat: nullable(obj({ low: { type: 'number' }, high: { type: 'number' }, note: str })),
+    dataCheck: str,
+    comparison: nullable(str),
+    actions: { type: 'array', items: str },
   }),
 };
 

@@ -1,5 +1,5 @@
 // Watch ↔ phone relay. The Zepp OS side service (inside the Zepp phone app) can only reach the
-// watch and HTTP, so both ends meet here, keyed by a pairing code the Recomp app generates.
+// watch and HTTP, so both ends meet here, keyed by a pairing code the Wrep app generates.
 //
 //   phone app ── PUT session / GET sets / GET live ──▶ relay ◀── GET session / POST sets / POST live ── watch
 //
@@ -82,10 +82,12 @@ export class RelayStore {
     return { sessionId: p.session?.id ?? null, seq: p.seq, sets: p.sets.filter((l) => l.seq > since) };
   }
 
-  /** Daily wearable metrics from the watch, merged per date; only the last 14 days are kept. */
-  putDaily(code, date, metrics) {
+  /** Daily wearable metrics from the watch, merged per date (history only fills gaps); only the last 14 days are kept. */
+  putDaily(code, date, metrics, { onlyMissing = false } = {}) {
     const p = this.pair(code);
-    p.daily = { ...(p.daily ?? {}), [date]: { ...(p.daily?.[date] ?? {}), ...metrics, at: Date.now() } };
+    const prev = p.daily?.[date] ?? {};
+    const next = onlyMissing ? { ...metrics, ...prev } : { ...prev, ...metrics };
+    p.daily = { ...(p.daily ?? {}), [date]: { ...next, at: Date.now() } };
     const keep = Object.keys(p.daily).sort().slice(-14);
     p.daily = Object.fromEntries(keep.map((d) => [d, p.daily[d]]));
     this.save();
@@ -133,15 +135,23 @@ function readBody(req, max = MAX_BODY) {
 }
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+/** Daily wellness numbers accepted from the watch (all positive; 0 means "no data"). */
+export const DAILY_KEYS = ['steps', 'deepSleepMin', 'sleepMin', 'restingHr', 'remMin', 'lightMin', 'awakeMin', 'sleepScore', 'stressAvg', 'nightStress', 'pai'];
+function dailyMetrics(b) {
+  const metrics = {};
+  for (const k of DAILY_KEYS) if (isNum(b[k]) && b[k] > 0 && b[k] < 200000) metrics[k] = Math.round(b[k]);
+  return metrics;
+}
+
 function validLog(l) {
   return l && typeof l.id === 'string' && Number.isInteger(l.qi) && typeof l.exerciseId === 'string' &&
     isNum(l.load) && isNum(l.reps) && isNum(l.rpe) && isNum(l.startedAt) && isNum(l.endedAt);
 }
 
-const MAX_AI_BODY = 8 * 1024 * 1024;
+const MAX_AI_BODY = 16 * 1024 * 1024; // up to 4 photos for the physique review
 
 /**
- * `ai` (optional): `{ ai, quota, codes }` from src/ai — enables /v1/:code/ai/{scan,exercise,coach,status}.
+ * `ai` (optional): `{ ai, quota, codes }` from src/ai — enables /v1/:code/ai/{scan,food,exercise,coach,physique,routine,status}.
  */
 export function createRelay({ file, ai } = {}) {
   const store = new RelayStore(file);
@@ -208,11 +218,16 @@ export function createRelay({ file, ai } = {}) {
         case 'POST daily': {
           const b = await readBody(req);
           if (typeof b.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(b.date)) return send(400, { error: 'invalid date' });
-          const metrics = {};
-          for (const k of ['steps', 'deepSleepMin', 'sleepMin', 'restingHr']) {
-            if (isNum(b[k]) && b[k] > 0 && b[k] < 200000) metrics[k] = Math.round(b[k]);
+          store.putDaily(code, b.date, dailyMetrics(b));
+          // Last days of stress/PAI from the watch: fills the baseline even if the app was not opened.
+          if (Array.isArray(b.history)) {
+            for (const h of b.history.slice(0, 14)) {
+              if (h && typeof h.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(h.date) && h.date < b.date) {
+                const m = dailyMetrics(h);
+                if (Object.keys(m).length) store.putDaily(code, h.date, m, { onlyMissing: true });
+              }
+            }
           }
-          store.putDaily(code, b.date, metrics);
           return send(200, { ok: true });
         }
         case 'GET daily':

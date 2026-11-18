@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Wrep · Lista de espera</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#050505;--fg:#f4f5f0;--lime:#c8f53c;--lime-hi:#e3ff8f;--coral:#ff7a5c;--mute:#9a9e95;--mute2:#c4c8bf;--dim:#5f635c;--line:#1f211f;--card:#0f100f;
+  --cond:'Barlow Condensed',sans-serif;--mono:'JetBrains Mono',monospace;--sans:Barlow,system-ui,sans-serif}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+button,input{font-family:inherit}
+button{cursor:pointer}
+button:focus-visible,input:focus-visible{outline:2px solid var(--lime);outline-offset:2px}
+.wrap{max-width:1120px;margin:0 auto;padding:32px 24px 64px;display:flex;flex-direction:column;gap:28px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:12px}
+.bars{display:flex;align-items:center;gap:4px}
+.bars i{width:8px;background:var(--lime);border-radius:2px;transform:skewX(-12deg)}
+.bars i:nth-child(1){height:26px}.bars i:nth-child(2){height:18px}.bars i:nth-child(3){height:10px;background:#6cc7e8}
+.brand b{font:900 24px/.9 var(--cond)}
+.brand small{display:block;font:600 9px/1 var(--mono);letter-spacing:.2em;color:var(--lime);margin-top:3px}
+h1{margin:0;font:900 clamp(40px,6vw,64px)/.9 var(--cond);text-transform:uppercase}
+.btn{height:42px;padding:0 18px;border-radius:21px;border:none;background:var(--lime);color:var(--bg);font:800 15px/1 var(--cond);text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+.btn:hover{background:var(--lime-hi)}
+.ghost{background:transparent;border:1px solid #3a3d39;color:var(--fg)}
+.ghost:hover{background:#121312}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+
+/* Login */
+.login{max-width:420px;margin:12vh auto 0;background:var(--card);border:1px solid #232523;border-radius:24px;padding:28px;display:flex;flex-direction:column;gap:18px}
+.login h2{margin:0;font:800 32px/.95 var(--cond);text-transform:uppercase}
+.login p{margin:0;color:var(--mute);font-size:14px;line-height:1.45}
+.login input[type=password]{height:52px;border-radius:14px;border:1px solid #2f322e;background:var(--bg);color:var(--fg);padding:0 16px;font:500 16px/1 var(--mono);outline:none;width:100%}
+.login input[type=password]:focus{border-color:var(--lime)}
+.login label.remember{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--mute2)}
+.login .btn{height:50px;border-radius:25px;font-size:18px}
+.err{color:var(--coral);font:500 12px/1.3 var(--mono);min-height:16px}
+
+/* Resumen */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:18px;overflow:hidden}
+.stat{background:var(--bg);padding:18px;display:flex;flex-direction:column;gap:8px}
+.stat span{font:600 10px/1 var(--mono);letter-spacing:.1em;color:var(--mute)}
+.stat b{font:900 40px/.9 var(--cond)}
+.stat b.lime{color:var(--lime)}
+.breakdown{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px}
+.bd{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.bd h3{margin:0;font:600 10px/1 var(--mono);letter-spacing:.1em;color:var(--mute)}
+.row{display:flex;flex-direction:column;gap:4px}
+.row div{display:flex;justify-content:space-between;gap:8px;font-size:13px}
+.row div span:last-child{font-family:var(--mono);color:var(--mute2)}
+.bar{height:4px;border-radius:2px;background:var(--line)}
+.bar i{display:block;height:100%;border-radius:2px;background:var(--lime)}
+
+/* Tabla */
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.toolbar input{flex:1 1 240px;height:42px;border-radius:21px;border:1px solid #2f322e;background:var(--bg);color:var(--fg);padding:0 16px;font:500 15px/1 var(--sans);outline:none}
+.toolbar input:focus{border-color:var(--lime)}
+.toolbar select{height:42px;border-radius:21px;border:1px solid #2f322e;background:var(--bg);color:var(--fg);padding:0 14px;font:500 14px/1 var(--sans)}
+.shown{font:500 12px/1 var(--mono);color:var(--dim)}
+.table{overflow-x:auto;border:1px solid var(--line);border-radius:16px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font:600 10px/1 var(--mono);letter-spacing:.08em;color:var(--mute);padding:14px 12px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--card)}
+td{padding:12px;border-bottom:1px solid var(--line);vertical-align:top;color:var(--mute2)}
+tr:last-child td{border-bottom:none}
+td.email{color:var(--fg);font-weight:600;word-break:break-all}
+td.date{font:500 12px/1.4 var(--mono);white-space:nowrap;color:var(--mute)}
+.tag{display:inline-block;font:600 10px/1 var(--mono);padding:5px 7px;border-radius:6px;background:#1a1b1a;color:var(--mute2);white-space:nowrap}
+.tag.premium{background:var(--lime);color:var(--bg)}
+.empty{padding:40px;text-align:center;color:var(--mute)}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:20px;font:600 13px/1 var(--sans)}
+@media (max-width:639px){.wrap{padding:24px 16px 48px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand">
+      <span class="bars" aria-hidden="true"><i></i><i></i><i></i></span>
+      <div><b>WREP</b><small>LISTA DE ESPERA</small></div>
+    </div>
+    <div class="actions" id="actions" hidden>
+      <button class="btn ghost" id="refresh">Actualizar</button>
+      <button class="btn ghost" id="copy">Copiar emails</button>
+      <button class="btn" id="csv">Descargar CSV</button>
+      <button class="btn ghost" id="logout">Salir</button>
+    </div>
+  </div>
+
+  <form class="login" id="login" hidden>
+    <h2>Acceso</h2>
+    <p>Introduce el <b>ADMIN_TOKEN</b> configurado en Railway.</p>
+    <input type="password" id="token" placeholder="Token" autocomplete="current-password" aria-label="Token">
+    <label class="remember"><input type="checkbox" id="remember"> Recordar en este dispositivo</label>
+    <div class="err" id="login-err" role="alert"></div>
+    <button class="btn" type="submit">Entrar</button>
+  </form>
+
+  <main id="app" hidden>
+    <div style="display:flex;flex-direction:column;gap:28px">
+      <h1>Lista de espera</h1>
+      <div class="stats" id="stats"></div>
+      <div class="breakdown" id="breakdown"></div>
+      <div class="toolbar">
+        <input type="search" id="q" placeholder="Buscar email o respuesta…" aria-label="Buscar">
+        <select id="plan" aria-label="Filtrar por plan">
+          <option value="">Todos los planes</option>
+          <option value="premium">Premium</option>
+          <option value="free">Gratis</option>
+        </select>
+        <span class="shown" id="shown"></span>
+      </div>
+      <div class="table">
+        <table>
+          <thead><tr><th>Fecha</th><th>Email</th><th>Plan</th><th>Objetivo</th><th>Móvil</th><th>Reloj</th><th>Le interesa</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script src="/admin.js" defer></script>
+</body>
+</html>

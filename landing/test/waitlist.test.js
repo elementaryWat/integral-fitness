@@ -89,9 +89,23 @@ test('API: alta, contador con base y exportación protegida', async () => {
   });
 });
 
-test('API: sin ADMIN_TOKEN la exportación está cerrada', async () => {
+test('API: sin ADMIN_TOKEN la exportación está cerrada y lo explica', async () => {
   await withServer({}, async (base) => {
-    assert.equal((await fetch(`${base}/api/waitlist/export`, { headers: { authorization: 'Bearer ' } })).status, 401);
+    const r = await fetch(`${base}/api/waitlist/export`, { headers: { authorization: 'Bearer ' } });
+    assert.equal(r.status, 503);
+    assert.match((await r.json()).error, /ADMIN_TOKEN/);
+  });
+});
+
+test('/admin sirve el panel sin indexar y sin datos dentro', async () => {
+  await withServer({ adminToken: 'secreto' }, async (base) => {
+    const r = await fetch(`${base}/admin`);
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get('x-robots-tag'), 'noindex, nofollow');
+    const html = await r.text();
+    assert.match(html, /Lista de espera/);
+    assert.doesNotMatch(html, /secreto/);
+    assert.equal((await fetch(`${base}/api/waitlist/export`, { headers: { authorization: 'Bearer malo' } })).status, 401);
   });
 });
 

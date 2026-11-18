@@ -10,20 +10,12 @@
   ];
   const CAPTIONS = ['LA SESIÓN, EN VIVO DESDE EL RELOJ', 'UNA FOTO, LOS MACROS', 'TU COACH REVISA LA SEMANA'];
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  const fmt = (n) => Number(n).toLocaleString('es-ES');
   const $ = (id) => document.getElementById(id);
   // Analítica (PostHog, ver analytics.js). Nunca enviamos el email.
   const trackEvent = (event, props) => window.track && window.track(event, props);
   const SLIDES = ['entreno', 'nutricion', 'coach'];
 
-  /* ---------- Contador ---------- */
-  function setCount(n) {
-    $('count').textContent = n > 0 ? `${fmt(n)} ${n === 1 ? 'persona' : 'personas'} en la lista` : '';
-  }
-  fetch('/api/waitlist')
-    .then((r) => (r.ok ? r.json() : null))
-    .then((d) => d && setCount(d.count))
-    .catch(() => {});
+  // Por ahora no mostramos el número de la lista de espera (ni contador ni posición).
 
   /* ---------- Carrusel ---------- */
   const track = $('track');
@@ -194,8 +186,6 @@
       st.done = true;
       const { goal, phone, watch, need } = st.ans;
       trackEvent('waitlist_joined', { plan: st.plan, source: st.source, goal, phone, watch, need, existing: !!d.existing });
-      setCount(d.count);
-      $('position').textContent = `#${fmt(d.position)}`;
       $('done-text').textContent = st.plan === 'premium'
         ? `Tu 75% de descuento queda reservado para el primer año de Premium. Te escribiremos a ${email} antes del lanzamiento.`
         : `Te escribiremos a ${email} cuando abramos el acceso. Podrás pasar a Premium con el 75% de descuento hasta el lanzamiento.`;

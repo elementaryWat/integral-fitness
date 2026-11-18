@@ -44,6 +44,10 @@ npm test
 
 En PostHog, un **Funnel** `waitlist_opened → waitlist_step_completed (step 1…4) → waitlist_joined`, desglosado por `source`, muestra dónde se cae la gente.
 
+## Ver la lista de espera
+
+Entra en **`https://wrep.fitness/admin`** e introduce el `ADMIN_TOKEN`. Muestra totales, desglose por respuesta, buscador, filtro por plan, copiar emails y descarga en CSV. El token no va en la URL; se guarda en la pestaña (o en el dispositivo si marcas «Recordar»).
+
 ## API
 
 - `GET /api/waitlist` → `{ count }`

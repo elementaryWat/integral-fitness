@@ -135,7 +135,8 @@ export function createApp({ store, baseCount = 0, adminToken = '', posthog = {} 
 
       if (path === '/api/waitlist/export' && req.method === 'GET') {
         const auth = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
-        if (!adminToken || !safeEqual(auth, adminToken)) return json(res, 401, { error: 'No autorizado' });
+        if (!adminToken) return json(res, 503, { error: 'Falta configurar ADMIN_TOKEN en Railway' });
+        if (!safeEqual(auth, adminToken)) return json(res, 401, { error: 'No autorizado' });
         const list = await store.all();
         if (url.searchParams.get('format') === 'csv') {
           res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'cache-control': 'no-store' });
@@ -146,7 +147,8 @@ export function createApp({ store, baseCount = 0, adminToken = '', posthog = {} 
 
       if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'Método no permitido' });
 
-      const rel = path === '/' ? 'index.html' : decodeURIComponent(path).replace(/^\/+/, '');
+      const PAGES = { '/': 'index.html', '/admin': 'admin.html', '/admin/': 'admin.html' };
+      const rel = PAGES[path] ?? decodeURIComponent(path).replace(/^\/+/, '');
       const file = normalize(join(PUBLIC_DIR, rel));
       if (!file.startsWith(PUBLIC_DIR)) return json(res, 404, { error: 'No encontrado' });
       let data;
@@ -165,6 +167,7 @@ export function createApp({ store, baseCount = 0, adminToken = '', posthog = {} 
         // HTML, JS y CSS se revalidan siempre para que un despliegue nuevo se vea al momento.
         'cache-control': ['.html', '.js', '.css'].includes(ext) ? 'no-cache' : 'public, max-age=3600',
         'x-content-type-options': 'nosniff',
+        ...(rel.startsWith('admin') ? { 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer' } : {}),
       });
       return res.end(req.method === 'HEAD' ? undefined : data);
     } catch (err) {
